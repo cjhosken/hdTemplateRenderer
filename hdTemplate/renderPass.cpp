@@ -23,9 +23,12 @@ bool HdTemplateRenderPass::IsConverged() const {
 void HdTemplateRenderPass::_Execute(HdRenderPassStateSharedPtr const &renderPassState,
                                     TfTokenVector const &renderTags)
 {
-    _renderThread->StartRender();
-    auto lock = _renderThread->LockFramebuffer();
-    // blit pixels from shared to application buffer.
+    bool render = false;
+    if (render) {
+        _renderThread->StartRender();
+        auto lock = _renderThread->LockFramebuffer();
+        // blit pixels from shared to application buffer.
+    }
 }
 
 

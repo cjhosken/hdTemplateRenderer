@@ -30,7 +30,9 @@ endfunction()
 add_library(hdTemplate SHARED
     sceneData.h
     renderParam.h
+    renderer.cpp
     renderPass.cpp
+    renderBuffer.cpp
     renderDelegate.cpp
     rendererPlugin.cpp
     plugInfo.json

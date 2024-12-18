@@ -11,6 +11,8 @@
 //XXX: Add other Sprim types later
 #include "pxr/imaging/hd/bprim.h"
 
+#include "renderBuffer.h"
+
 #include "pxr/imaging/hd/mesh.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -38,24 +40,41 @@ HdResourceRegistrySharedPtr HdTemplateRenderDelegate::_resourceRegistry;
 
 HdTemplateRenderDelegate::HdTemplateRenderDelegate()
 {
-    _renderThread.SetRenderCallback(
-        std::bind(&HdTemplateRenderDelegate::_RenderCallback, this));
-    _renderThread.StartThread();
+    _Initialize();
 }
 
 // Constructor with settingsMap argument
 HdTemplateRenderDelegate::HdTemplateRenderDelegate(const HdRenderSettingsMap &settingsMap)
 {
+    _Initialize();
+}
+
+void HdTemplateRenderDelegate::_Initialize()
+{
     // Initialize settingsMap if necessary
     _renderThread.SetRenderCallback(
         std::bind(&HdTemplateRenderDelegate::_RenderCallback, this));
     _renderThread.StartThread();
+
+    std::lock_guard<std::mutex> guard(_mutexResourceRegistry);
+
+    if (_counterResourceRegistry.fetch_add(1) == 0) {
+        _resourceRegistry = std::make_shared<HdResourceRegistry>();
+    }
 }
 
 // Destructor
 HdTemplateRenderDelegate::~HdTemplateRenderDelegate()
 {
+    {
+        std::lock_guard<std::mutex> guard(_mutexResourceRegistry);
+        if (_counterResourceRegistry.fetch_sub(1) == 1) {
+            _resourceRegistry.reset();
+        }
+    }
+
     _renderThread.StopThread();
+    _renderParam.reset();
 }
 
 HdRenderSettingDescriptorList HdTemplateRenderDelegate::GetRenderSettingDescriptors() const
@@ -211,7 +230,7 @@ HdTemplateRenderDelegate::CreateBprim(TfToken const& typeId,
                                     SdfPath const& bprimId)
 {
     if (typeId == HdPrimTypeTokens->renderBuffer) {
-        //return new HdRenderBuffer(bprimId);
+        return new HdTemplateRenderBuffer(bprimId);
     } else {
         TF_CODING_ERROR("Unknown Bprim Type %s", typeId.GetText());
     }
@@ -222,7 +241,7 @@ HdBprim *
 HdTemplateRenderDelegate::CreateFallbackBprim(TfToken const& typeId)
 {
     if (typeId == HdPrimTypeTokens->renderBuffer) {
-        //return new HdRenderBuffer(SdfPath::EmptyPath());
+        return new HdTemplateRenderBuffer(SdfPath::EmptyPath());
     } else {
         TF_CODING_ERROR("Unknown Bprim Type %s", typeId.GetText());
     }

@@ -22,7 +22,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 /// to each prim during Sync(). HdTemplate uses this class to pass top-level
 /// embree state around.
 /// 
-class HdTemplateRenderParam : HdRenderParam {
+class HdTemplateRenderParam : public HdRenderParam {
   public:
     HdTemplateRenderParam(HdRenderThread* renderThread, SceneData *scene) {
         _renderThread = renderThread;

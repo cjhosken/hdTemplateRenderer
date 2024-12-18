@@ -85,6 +85,9 @@ public:
     VtDictionary GetRenderStats() const override;
 
 private:
+
+    void _Initialize();
+
     static const TfTokenVector SUPPORTED_RPRIM_TYPES;
     static const TfTokenVector SUPPORTED_SPRIM_TYPES;
     static const TfTokenVector SUPPORTED_BPRIM_TYPES;
@@ -95,28 +98,13 @@ private:
 
     HdRenderSettingDescriptorList _settingDescriptors;
 
-    std::shared_ptr<HdRenderParam> _renderParam;
+    std::shared_ptr<HdTemplateRenderParam> _renderParam;
 
     // Declare _renderThread only once here
     HdRenderThread _renderThread;
 
     void _RenderCallback() {
-        bool renderComplete = false;
-        while (!renderComplete) {
-            while (_renderThread.IsPauseRequested()) {
-                if (_renderThread.IsStopRequested()) {
-                    break;
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            }
-            if (_renderThread.IsStopRequested()) {
-                break;
-            }
 
-            auto lock = _renderThread.LockFramebuffer();
-            // Resolve pixels to shared buffer
-            // Set renderComplete = true when finished rendering
-        }
     };
 
     // This class does not support copying.
