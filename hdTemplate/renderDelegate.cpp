@@ -4,7 +4,6 @@
 // Licensed under the terms set forth in the LICENSE.txt file available at
 // https://openusd.org/license.
 //
-#include "renderDelegate.h"
 
 #include "config.h"
 #include "instancer.h"
@@ -18,6 +17,8 @@
 #include "mesh.h"
 #include "pxr/imaging/hd/camera.h"
 #include "pxr/imaging/hd/bprim.h"
+
+#include "renderDelegate.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -38,7 +39,7 @@ const TfTokenVector HdTemplateRenderDelegate::SUPPORTED_BPRIM_TYPES =
 };
 
 std::mutex HdTemplateRenderDelegate::_mutexResourceRegistry;
-std::atomic_int HdTemplateRenderDelegate::_counterResourceRegistry;
+std::atomic_int HdTemplateRenderDelegate::_counterResourceRegistry(0);
 HdResourceRegistrySharedPtr HdTemplateRenderDelegate::_resourceRegistry;
 
 static void _RenderCallback(HdTemplateRenderer *renderer,
@@ -63,17 +64,32 @@ HdTemplateRenderDelegate::HdTemplateRenderDelegate(
 
 void HdTemplateRenderDelegate::_Initialize()
 {
+    _renderer = new HdTemplateRenderer();
+
     _renderParam = std::make_shared<HdTemplateRenderParam>(
         &_renderThread, &_sceneVersion);
 
     _renderThread.SetRenderCallback(
-        std::bind(_RenderCallback, &_renderer, &_renderThread));
+        std::bind(_RenderCallback, _renderer, &_renderThread));
 
     _renderThread.StartThread();
+    auto lock = _renderThread.LockFramebuffer();
+
+    // Initialize one resource registry for all embree plugins
+    std::lock_guard<std::mutex> guard(_mutexResourceRegistry);
+
+    if (_counterResourceRegistry.fetch_add(1) == 0) {
+        _resourceRegistry.reset(new HdResourceRegistry());
+    }
 }
 
 HdTemplateRenderDelegate::~HdTemplateRenderDelegate()
 {
+    std::lock_guard<std::mutex> guard(_mutexResourceRegistry);
+    if (_counterResourceRegistry.fetch_sub(1) == 1) {
+        _resourceRegistry.reset();
+    }
+
     _renderThread.StopThread();
     _renderParam.reset();
 }
@@ -159,7 +175,7 @@ HdTemplateRenderDelegate::CreateRenderPass(HdRenderIndex *index,
                                            HdRprimCollection const &collection)
 {
     return HdRenderPassSharedPtr(new HdTemplateRenderPass(
-        index, collection, &_renderThread, &_renderer, &_sceneVersion));
+        index, collection, &_renderThread, _renderer, &_sceneVersion));
 }
 
 HdInstancer *

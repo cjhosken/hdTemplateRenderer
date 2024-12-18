@@ -15,7 +15,13 @@ PXR_NAMESPACE_USING_DIRECTIVE
 class HdTemplateRenderBuffer : public HdRenderBuffer {
 public:
     HdTemplateRenderBuffer(SdfPath const& id);
-    ~HdTemplateRenderBuffer() = default;
+    ~HdTemplateRenderBuffer() override;
+
+    void Sync(HdSceneDelegate *sceneDelegate,
+              HdRenderParam *renderParam,
+              HdDirtyBits *dirtyBits) override;
+
+    void Finalize(HdRenderParam *renderParam) override;
 
     virtual bool
     Allocate(GfVec3i const& dimensions, HdFormat format,

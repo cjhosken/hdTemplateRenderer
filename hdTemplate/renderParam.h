@@ -12,6 +12,7 @@
 #include "pxr/imaging/hd/renderThread.h"
 #include "pxr/usd/usd/prim.h"
 
+#include "templateScene.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -29,6 +30,7 @@ public:
     : _renderThread(renderThread), _sceneVersion(sceneVersion)
     {}
 
+    /// Accessor for the top-level scene.
     void Edit() {
         _renderThread->StopRender();
         (*_sceneVersion)++;
@@ -42,4 +44,4 @@ private:
 
 PXR_NAMESPACE_CLOSE_SCOPE
 
-#endif // HD_TEMPLATE_RENDER_PARAM_H
+#endif

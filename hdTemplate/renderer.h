@@ -12,6 +12,7 @@
 #include "pxr/imaging/hd/renderThread.h"
 #include "pxr/imaging/hd/renderPassState.h"
 #include "pxr/imaging/hd/renderIndex.h"
+#include "templateScene.h"
 
 #include "pxr/base/gf/matrix4d.h"
 #include "pxr/base/gf/rect2i.h"
@@ -42,7 +43,7 @@ public:
     /// Renderer destructor.
     ~HdTemplateRenderer();
 
-    void SetIndex(HdRenderIndex* index);
+    void SetScene(TemplateScene scene);
 
     /// Set the data window to fill (same meaning as in CameraUtilFraming
     /// with coordinate system also being y-Down).
@@ -87,6 +88,8 @@ private:
     HdRenderPassAovBindingVector _aovBindings;
     // Parsed AOV name tokens.
     HdParsedAovTokenVector _aovNames;
+
+    TemplateScene _scene;
 
     // Data window - as in CameraUtilFraming.
     GfRect2i _dataWindow;

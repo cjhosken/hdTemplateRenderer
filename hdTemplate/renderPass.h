@@ -4,8 +4,7 @@
 // Licensed under the terms set forth in the LICENSE.txt file available at
 // https://openusd.org/license.
 //
-#ifndef HD_TEMPLATE_RENDER_PASS_H
-#define HD_TEMPLATE_RENDER_PASS_H
+#pragma once
 
 #include "pxr/pxr.h"
 
@@ -14,6 +13,7 @@
 #include "pxr/imaging/hd/renderThread.h"
 #include "renderer.h"
 #include "renderBuffer.h"
+#include "templateScene.h"
 
 #include "pxr/base/gf/matrix4d.h"
 #include "pxr/base/gf/rect2i.h"
@@ -79,6 +79,8 @@ private:
     // A reference to the global scene version.
     std::atomic<int> *_sceneVersion;
 
+    TemplateScene* _scene;
+
     // The last scene version we rendered with.
     int _lastSceneVersion;
 
@@ -98,8 +100,8 @@ private:
     // The list of aov buffers this renderpass should write to.
     HdRenderPassAovBindingVector _aovBindings;
     HdTemplateRenderBuffer _colorBuffer;
+
+    bool _converged;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE
-
-#endif // HD_TEMPLATE_RENDER_PASS_H

@@ -27,6 +27,7 @@ class HdTemplateRendererPlugin final : public HdRendererPlugin
 {
 public:
     HdTemplateRendererPlugin() = default;
+    virtual ~HdTemplateRendererPlugin() = default;
 
     /// Construct a new render delegate of type HdTemplateRenderDelegate.
     /// Template render delegates own the embree scene object, so a new render

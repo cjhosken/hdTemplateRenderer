@@ -6,11 +6,11 @@
 #include <pxr/imaging/hd/mesh.h>
 #include <pxr/pxr.h>
 #include "pxr/base/gf/matrix4f.h"
+#include "pxr/base/gf/ray.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 class HdStDrawItem;
-class HdTemplateRenderParam;
 
 /// \class HdTemplateMesh
 ///
@@ -36,7 +36,9 @@ public:
 
     virtual void Finalize(HdRenderParam* renderParam) override;
 
+    double Intersect(GfRay ray) const;
 
+    GfVec3d GetPosition() const {return _position;}
 
 protected:
 
@@ -47,8 +49,24 @@ protected:
     virtual HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
 
 private:
+    GfVec3d _position;
     VtVec3fArray _points;
+    HdMeshTopology _topology;
+
+    struct PrimvarSource {
+        VtValue data;
+        HdInterpolation interpolation;
+    };
+    TfHashMap<TfToken, PrimvarSource, TfToken::HashFunctor> _primvarSourceMap;
+
+    // Populate _primvarSourceMap with primvars that are computed.
+    // Return the names of the primvars that were successfully updated.
+    TfTokenVector _UpdateComputedPrimvarSources(HdSceneDelegate* sceneDelegate,
+                                                HdDirtyBits dirtyBits);
+
+
+
     // This class does not support copying.
-    HdTemplateMesh(const HdTemplateMesh&) = delete;
+    HdTemplateMesh(const HdTemplateMesh& other) = delete;
     HdTemplateMesh& operator=(const HdTemplateMesh&) = delete;
 };

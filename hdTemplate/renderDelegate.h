@@ -14,10 +14,11 @@
 #include "renderer.h"
 #include "pxr/base/tf/staticTokens.h"
 #include "pxr/usd/usd/prim.h"
+#include "renderParam.h"
+
+#include "templateScene.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
-
-class HdTemplateRenderParam;
 
 // Also: HdRenderSettingsTokens->convergedSamplesPerPixel
 
@@ -230,8 +231,8 @@ private:
     // passed to prims during Sync().
     std::shared_ptr<HdTemplateRenderParam> _renderParam;
 
-    // An embree renderer object, to perform the actual raytracing.
-    HdTemplateRenderer _renderer;
+    // A renderer object, to perform the actual raytracing.
+    HdTemplateRenderer* _renderer;
 
      // A background render thread for running the actual renders in. The
     // render thread object manages synchronization between the scene data

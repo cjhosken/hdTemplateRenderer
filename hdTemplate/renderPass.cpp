@@ -8,6 +8,7 @@
 #include "renderDelegate.h"
 #include "renderPass.h"
 #include <iostream>
+#include "templateScene.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -26,8 +27,9 @@ HdTemplateRenderPass::HdTemplateRenderPass(HdRenderIndex *index,
     , _projMatrix(1.0f) // == identity
     , _aovBindings()
     , _colorBuffer(SdfPath::EmptyPath())
+    ,_converged(false)
 {
-    renderer->SetIndex(index);
+    _renderer->SetScene(TemplateScene(index));
 }
 
 HdTemplateRenderPass::~HdTemplateRenderPass()
@@ -39,7 +41,21 @@ HdTemplateRenderPass::~HdTemplateRenderPass()
 
 bool
 HdTemplateRenderPass::IsConverged() const {
-    return false;
+    // If the aov binding array is empty, the render thread is rendering into
+    // _colorBuffer and _depthBuffer.  _converged is set to their convergence
+    // state just before blit, so use that as our answer.
+    if (_aovBindings.size() == 0) {
+        return _converged;
+    }
+
+    // Otherwise, check the convergence of all attachments.
+    for (size_t i = 0; i < _aovBindings.size(); ++i) {
+        if (_aovBindings[i].renderBuffer &&
+            !_aovBindings[i].renderBuffer->IsConverged()) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static
@@ -147,8 +163,8 @@ HdTemplateRenderPass::_Execute(HdRenderPassStateSharedPtr const& renderPassState
     }
 
     // Only start a new render if something in the scene has changed.
-    needStartRender = true;
     if (needStartRender) {
+        _converged = false;
         _renderer->MarkAovBuffersUnconverged();
         _renderThread->StartRender();
     }

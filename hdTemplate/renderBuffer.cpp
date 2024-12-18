@@ -26,6 +26,7 @@
 //
 
 #include "renderBuffer.h"
+#include "renderParam.h"
 #include <pxr/base/gf/half.h>
 
 #include <tbb/parallel_for.h>
@@ -42,6 +43,34 @@ HdTemplateRenderBuffer::HdTemplateRenderBuffer(SdfPath const& id)
     , _mappers(0)
     , _converged(false)
 {
+}
+
+HdTemplateRenderBuffer::~HdTemplateRenderBuffer() = default;
+
+/*virtual*/
+void
+HdTemplateRenderBuffer::Sync(HdSceneDelegate *sceneDelegate,
+                           HdRenderParam *renderParam,
+                           HdDirtyBits *dirtyBits)
+{
+    if (*dirtyBits & DirtyDescription) {
+        // Embree has the background thread write directly into render buffers,
+        // so we need to stop the render thread before reallocating them.
+        static_cast<HdTemplateRenderParam*>(renderParam)->Edit();
+    }
+
+    HdRenderBuffer::Sync(sceneDelegate, renderParam, dirtyBits);
+}
+
+/*virtual*/
+void
+HdTemplateRenderBuffer::Finalize(HdRenderParam *renderParam)
+{
+    // Embree has the background thread write directly into render buffers,
+    // so we need to stop the render thread before removing them.
+    static_cast<HdTemplateRenderParam*>(renderParam)->Edit();
+
+    HdRenderBuffer::Finalize(renderParam);
 }
 
 void

@@ -2,6 +2,7 @@
 #include "pxr/imaging/hd/perfLog.h"
 
 #include "pxr/base/gf/matrix3f.h"
+#include "pxr/base/gf/ray.h"
 #include "pxr/base/gf/vec2f.h"
 #include "pxr/base/work/loops.h"
 
@@ -29,12 +30,15 @@ HdTemplateRenderer::HdTemplateRenderer()
 {
 }
 
-HdTemplateRenderer::~HdTemplateRenderer() = default;
+HdTemplateRenderer::~HdTemplateRenderer() {
+    delete &_scene;
+};
 
-void HdTemplateRenderer::SetIndex(HdRenderIndex *index)
+void HdTemplateRenderer::SetScene(TemplateScene scene)
 {
-    _renderIndex = index;
+    _scene = scene;
 }
+
 
 void HdTemplateRenderer::SetDataWindow(const GfRect2i &dataWindow)
 {
@@ -276,38 +280,6 @@ void HdTemplateRenderer::MarkAovBuffersUnconverged()
     }
 }
 
-bool IntersectRayTriangle(const GfVec3f& rayOrigin, const GfVec3f& rayDir,
-                          const GfVec3f& v0, const GfVec3f& v1, const GfVec3f& v2,
-                          float& t, GfVec3f& hitPoint) {
-    // Moller-Trumbore intersection algorithm
-    const float EPSILON = 1e-6;
-    GfVec3f edge1 = v1 - v0;
-    GfVec3f edge2 = v2 - v0;
-    GfVec3f h = GfCross(rayDir, edge2);
-    float a = GfDot(edge1, h);
-    if (a > -EPSILON && a < EPSILON)
-        return false;  // Ray is parallel to triangle
-
-    float f = 1.0 / a;
-    GfVec3f s = rayOrigin - v0;
-    float u = f * GfDot(s, h);
-    if (u < 0.0 || u > 1.0)
-        return false;
-
-    GfVec3f q = GfCross(s, edge1);
-    float v = f * GfDot(rayDir, q);
-    if (v < 0.0 || u + v > 1.0)
-        return false;
-
-    // Intersection point is on the ray
-    t = f * GfDot(edge2, q);
-    if (t > EPSILON) {
-        hitPoint = rayOrigin + t * rayDir;
-        return true;
-    }
-    return false;
-}
-
 void HdTemplateRenderer::Render(HdRenderThread *renderThread)
 {
     if (!_ValidateAovBindings())
@@ -367,7 +339,13 @@ void HdTemplateRenderer::Render(HdRenderThread *renderThread)
     _width = 0;
     _height = 0;
 
-    for (int i = 0; i < 10; ++i)
+    std::default_random_engine random(1);
+
+    // Create a uniform distribution for jitter calculations.
+    std::uniform_real_distribution<float> uniform_dist(0.0f, 1.0f);
+    auto uniform_float = [&random, &uniform_dist]() { return uniform_dist(random); };
+
+    for (int i = 0; i < 1; ++i)
     {
         // Pause point.
         while (renderThread->IsPauseRequested())
@@ -384,16 +362,45 @@ void HdTemplateRenderer::Render(HdRenderThread *renderThread)
             break;
         }
 
-        // this is all the rprims
-        const SdfPathVector &rprimIds = _renderIndex->GetRprimIds();
+        GfVec3f origin = GfVec3f(_inverseViewMatrix.Transform(GfVec3f(0,0,0)));
 
-        for (unsigned int y = 0; y < _dataWindow.GetMaxY(); ++y)
+        //_scene->SortByDepth(origin);
+
+        for (unsigned int y = _dataWindow.GetHeight() - 1; y >= 0; --y)
         {
-            for (unsigned int x = 0; x < _dataWindow.GetMaxX(); ++x)
+            if (renderThread->IsStopRequested())
             {
-                
-                // Do raytracing logic here.
+                break;
+            }
+            
+            for (unsigned int x = 0; x < _dataWindow.GetWidth(); ++x)
+            {
 
+                if (renderThread->IsStopRequested())
+                {
+                    break;
+                }
+                
+                GfVec4f Cd(0.0f, 0.0f, 0.0f, 1.0f);
+
+                GfVec2f jitter = GfVec2f(uniform_float(), uniform_float());
+                jitter = GfVec2f(0.0f, 0.0f);
+
+                const float w(_dataWindow.GetWidth());
+                const float h(_dataWindow.GetHeight());
+
+                const GfVec3f ndc(
+                    2 * ((x + jitter[0] - _dataWindow.GetMinX()) / w) - 1,
+                    2 * ((y + jitter[1] - _dataWindow.GetMinY()) / h) - 1,
+                    -1);
+                
+                const GfVec3f nearPlaneTrace(_inverseProjMatrix.Transform(ndc));
+
+                GfVec3f dir = GfVec3f(_inverseViewMatrix.TransformDir(nearPlaneTrace)).GetNormalized();
+
+                GfRay ray(origin, dir);
+
+                Cd = _scene.Render(ray);
 
                 // Set pixels for each AOV
                 for (size_t i = 0; i < _aovBindings.size(); ++i)
@@ -405,12 +412,7 @@ void HdTemplateRenderer::Render(HdRenderThread *renderThread)
                     {
                         GfVec4f clearColor = _GetClearColor(_aovBindings[i].clearValue);
 
-                        float r = x / static_cast<float>(_dataWindow.GetMaxX());
-                        float g = y / static_cast<float>(_dataWindow.GetMaxY());
-                        float b = 0.5f;
-
-                        GfVec4f sample(r, g, b, 1.0f);
-                        renderBuffer->Write(GfVec3i(x, y, 1), 4, sample.data());
+                        renderBuffer->Write(GfVec3i(x, y, 1), 4, Cd.data());
                     }
                 }
             }
