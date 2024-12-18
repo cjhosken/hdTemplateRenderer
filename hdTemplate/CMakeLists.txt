@@ -28,13 +28,8 @@ endfunction()
 
 # Here is where we add all our used files (cpp, h, json, etc.)
 add_library(hdTemplate SHARED
+    sceneData.h
     renderParam.h
-    config.cpp
-    instancer.cpp
-    mesh.cpp
-    templateScene.cpp
-    renderer.cpp
-    renderBuffer.cpp
     renderPass.cpp
     renderDelegate.cpp
     rendererPlugin.cpp
