@@ -11,9 +11,11 @@
 
 #include "pxr/imaging/hd/renderThread.h"
 #include "pxr/imaging/hd/renderPassState.h"
+#include "pxr/imaging/hd/renderIndex.h"
 
 #include "pxr/base/gf/matrix4d.h"
 #include "pxr/base/gf/rect2i.h"
+#include "pxr/usd/usd/prim.h"
 
 #include <random>
 #include <atomic>
@@ -40,6 +42,8 @@ public:
     /// Renderer destructor.
     ~HdTemplateRenderer();
 
+    void SetIndex(HdRenderIndex* index);
+
     /// Set the data window to fill (same meaning as in CameraUtilFraming
     /// with coordinate system also being y-Down).
     void SetDataWindow(const GfRect2i &dataWindow);
@@ -59,6 +63,8 @@ public:
     /// Mark the aov buffers as unconverged.
     void MarkAovBuffersUnconverged();
 private:
+    HdRenderIndex* _renderIndex;
+
 // Validate the internal consistency of aov bindings provided to
     // SetAovBindings. If the aov bindings are invalid, this will issue
     // appropriate warnings. If the function returns false, Render() will fail

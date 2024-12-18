@@ -5,6 +5,7 @@
 
 #include <pxr/imaging/hd/mesh.h>
 #include <pxr/pxr.h>
+#include "pxr/base/gf/matrix4f.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -45,6 +46,8 @@ protected:
 
     virtual HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
 
+private:
+    VtVec3fArray _points;
     // This class does not support copying.
     HdTemplateMesh(const HdTemplateMesh&) = delete;
     HdTemplateMesh& operator=(const HdTemplateMesh&) = delete;

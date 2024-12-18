@@ -10,6 +10,9 @@
 #include "renderBuffer.h"
 #include "config.h"
 #include "mesh.h"
+#include "pxr/usd/usd/prim.h"
+
+#include "pxr/base/tf/debug.h"
 
 #include <iostream>
 
@@ -27,6 +30,11 @@ HdTemplateRenderer::HdTemplateRenderer()
 }
 
 HdTemplateRenderer::~HdTemplateRenderer() = default;
+
+void HdTemplateRenderer::SetIndex(HdRenderIndex *index)
+{
+    _renderIndex = index;
+}
 
 void HdTemplateRenderer::SetDataWindow(const GfRect2i &dataWindow)
 {
@@ -87,7 +95,6 @@ bool HdTemplateRenderer::_ValidateAovBindings()
         }
 
         if (_aovNames[i].name != HdAovTokens->color &&
-            _aovNames[i].name != HdAovTokens->depth &&
             !_aovNames[i].isPrimvar)
         {
             TF_WARN("Unsupported attachment with Aov '%s' won't be rendered to",
@@ -95,15 +102,6 @@ bool HdTemplateRenderer::_ValidateAovBindings()
         }
 
         HdFormat format = _aovBindings[i].renderBuffer->GetFormat();
-
-        // depth is only supported for float32 attachments
-        if ((_aovNames[i].name == HdAovTokens->depth) && format != HdFormatFloat32)
-        {
-            TF_WARN("Aov '%s' has unsupported format '%s'",
-                    _aovNames[i].name.GetText(),
-                    TfEnum::GetName(format).c_str());
-            _aovBindingsValid = false;
-        }
 
         // color is only supported for vec3/vec4 attachments of float,
         // unorm, or snorm.
@@ -278,6 +276,38 @@ void HdTemplateRenderer::MarkAovBuffersUnconverged()
     }
 }
 
+bool IntersectRayTriangle(const GfVec3f& rayOrigin, const GfVec3f& rayDir,
+                          const GfVec3f& v0, const GfVec3f& v1, const GfVec3f& v2,
+                          float& t, GfVec3f& hitPoint) {
+    // Moller-Trumbore intersection algorithm
+    const float EPSILON = 1e-6;
+    GfVec3f edge1 = v1 - v0;
+    GfVec3f edge2 = v2 - v0;
+    GfVec3f h = GfCross(rayDir, edge2);
+    float a = GfDot(edge1, h);
+    if (a > -EPSILON && a < EPSILON)
+        return false;  // Ray is parallel to triangle
+
+    float f = 1.0 / a;
+    GfVec3f s = rayOrigin - v0;
+    float u = f * GfDot(s, h);
+    if (u < 0.0 || u > 1.0)
+        return false;
+
+    GfVec3f q = GfCross(s, edge1);
+    float v = f * GfDot(rayDir, q);
+    if (v < 0.0 || u + v > 1.0)
+        return false;
+
+    // Intersection point is on the ray
+    t = f * GfDot(edge2, q);
+    if (t > EPSILON) {
+        hitPoint = rayOrigin + t * rayDir;
+        return true;
+    }
+    return false;
+}
+
 void HdTemplateRenderer::Render(HdRenderThread *renderThread)
 {
     if (!_ValidateAovBindings())
@@ -354,10 +384,18 @@ void HdTemplateRenderer::Render(HdRenderThread *renderThread)
             break;
         }
 
+        // this is all the rprims
+        const SdfPathVector &rprimIds = _renderIndex->GetRprimIds();
+
         for (unsigned int y = 0; y < _dataWindow.GetMaxY(); ++y)
         {
             for (unsigned int x = 0; x < _dataWindow.GetMaxX(); ++x)
             {
+                
+                // Do raytracing logic here.
+
+
+                // Set pixels for each AOV
                 for (size_t i = 0; i < _aovBindings.size(); ++i)
                 {
                     HdTemplateRenderBuffer *renderBuffer =
@@ -373,12 +411,6 @@ void HdTemplateRenderer::Render(HdRenderThread *renderThread)
 
                         GfVec4f sample(r, g, b, 1.0f);
                         renderBuffer->Write(GfVec3i(x, y, 1), 4, sample.data());
-                    }
-                    else if (_aovNames[i].name == HdAovTokens->depth)
-                    {
-                        float depth = 0.5f;
-
-                        renderBuffer->Write(GfVec3i(x, y, 1), 1, &depth);
                     }
                 }
             }

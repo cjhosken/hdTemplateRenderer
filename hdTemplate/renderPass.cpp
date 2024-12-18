@@ -27,6 +27,7 @@ HdTemplateRenderPass::HdTemplateRenderPass(HdRenderIndex *index,
     , _aovBindings()
     , _colorBuffer(SdfPath::EmptyPath())
 {
+    renderer->SetIndex(index);
 }
 
 HdTemplateRenderPass::~HdTemplateRenderPass()

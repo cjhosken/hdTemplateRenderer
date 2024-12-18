@@ -13,6 +13,7 @@
 #include "pxr/imaging/hd/renderThread.h"
 #include "renderer.h"
 #include "pxr/base/tf/staticTokens.h"
+#include "pxr/usd/usd/prim.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
 

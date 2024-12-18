@@ -10,6 +10,7 @@
 #include "pxr/pxr.h"
 #include "pxr/imaging/hd/renderDelegate.h"
 #include "pxr/imaging/hd/renderThread.h"
+#include "pxr/usd/usd/prim.h"
 
 
 PXR_NAMESPACE_OPEN_SCOPE
