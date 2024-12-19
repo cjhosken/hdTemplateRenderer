@@ -37,6 +37,12 @@ std::mutex HdTemplateRenderDelegate::_mutexResourceRegistry;
 std::atomic_int HdTemplateRenderDelegate::_counterResourceRegistry;
 HdResourceRegistrySharedPtr HdTemplateRenderDelegate::_resourceRegistry;
 
+static void _RenderCallback(HdTemplateRenderer* renderer, HdRenderThread *renderThread)
+{
+    renderer->Clear();
+    renderer->Render(renderThread);
+}
+
 
 HdTemplateRenderDelegate::HdTemplateRenderDelegate()
 {
@@ -51,9 +57,15 @@ HdTemplateRenderDelegate::HdTemplateRenderDelegate(const HdRenderSettingsMap &se
 
 void HdTemplateRenderDelegate::_Initialize()
 {
+    _renderParam = std::make_shared<HdTemplateRenderParam>(
+        &_renderThread, nullptr
+    );
+
+    _renderer = HdTemplateRenderer();
+
     // Initialize settingsMap if necessary
     _renderThread.SetRenderCallback(
-        std::bind(&HdTemplateRenderDelegate::_RenderCallback, this));
+        std::bind(_RenderCallback, &_renderer, &_renderThread));
     _renderThread.StartThread();
 
     std::lock_guard<std::mutex> guard(_mutexResourceRegistry);
@@ -118,6 +130,14 @@ HdTemplateRenderDelegate::GetResourceRegistry() const
 HdAovDescriptor
 HdTemplateRenderDelegate::GetDefaultAovDescriptor(TfToken const& name) const
 {
+    if (name==HdAovTokens->color) {
+        return HdAovDescriptor(HdFormatFloat32Vec4, false, VtValue(GfVec4f(0.0f)));
+    } else {
+        HdParsedAovToken aovId(name);
+        if (aovId.isPrimvar) {
+            return HdAovDescriptor(HdFormatFloat32Vec3, false, VtValue(GfVec3f(0.0f)));
+        }
+    }
     return HdAovDescriptor();
 }
 
@@ -152,7 +172,7 @@ HdRenderPassSharedPtr HdTemplateRenderDelegate::CreateRenderPass(HdRenderIndex *
                 HdRprimCollection const& collection)
 {
     // Implement the required functionality
-    return HdRenderPassSharedPtr(new HdTemplateRenderPass(index, collection, &_renderThread)); // Example, create and return a render pass
+    return HdRenderPassSharedPtr(new HdTemplateRenderPass(index, collection, &_renderThread, &_renderer)); // Example, create and return a render pass
 }
 
 HdInstancer *

@@ -15,6 +15,9 @@
 #include "pxr/base/gf/matrix4d.h"
 #include "pxr/base/gf/rect2i.h"
 
+#include "renderBuffer.h"
+#include "renderer.h"
+
 PXR_NAMESPACE_OPEN_SCOPE
 
 /// \class HdTemplateRenderPass
@@ -29,7 +32,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 class HdTemplateRenderPass final : public HdRenderPass
 {
 public:
-    HdTemplateRenderPass(HdRenderIndex* index, HdRprimCollection const& collection, HdRenderThread* renderThread);
+    HdTemplateRenderPass(HdRenderIndex* index, HdRprimCollection const& collection, HdRenderThread* renderThread, HdTemplateRenderer *renderer);
 
     ~HdTemplateRenderPass() override;
 
@@ -43,6 +46,18 @@ protected:
 
 private:
     HdRenderThread* _renderThread;
+    HdTemplateRenderer* _renderer;
+
+    GfRect2i _dataWindow;
+
+    GfMatrix4d _viewMatrix;
+    GfMatrix4d _projMatrix;
+
+    HdRenderPassAovBindingVector _aovBindings;
+
+    HdTemplateRenderBuffer _colorBuffer;
+
+    bool _converged;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

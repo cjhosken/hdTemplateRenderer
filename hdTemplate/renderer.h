@@ -28,9 +28,37 @@ public:
     void SetCamera(const GfMatrix4d& viewMatrix, const GfMatrix4d& projMatrix);
 
     void Render(HdRenderThread *renderThread);
+
+    void SetAovBindings(HdRenderPassAovBindingVector const &aovBindings);
+
+    HdRenderPassAovBindingVector const& GetAovBindings() const {
+        return _aovBindings;
+    }
+
+    void Clear();
+
+    void MarkAovBuffersUnconverged();
+
 private:
+
+    bool _ValidateAovBindings();
+
+    static GfVec4f _GetClearColor(VtValue const& clearValue);
+
     // Data window - as in CameraUtilFraming.
     GfRect2i _dataWindow;
+
+    // The bound aovs for this renderer.
+    HdRenderPassAovBindingVector _aovBindings;
+    // Parsed AOV name tokens.
+    HdParsedAovTokenVector _aovNames;
+
+    // Do the aov bindings need to be re-validated?
+    bool _aovBindingsNeedValidation;
+    // Are the aov bindings valid?
+    bool _aovBindingsValid;
+
+
 
     // The width of the render buffers.
     unsigned int _width;

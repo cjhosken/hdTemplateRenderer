@@ -12,13 +12,14 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-class HdTemplateRenderDelegate final : public HdRenderDelegate {
+class HdTemplateRenderDelegate final : public HdRenderDelegate
+{
 public:
     // Default constructor
     HdTemplateRenderDelegate();
 
     // Constructor with settingsMap argument
-    explicit HdTemplateRenderDelegate(const HdRenderSettingsMap& settingsMap);
+    explicit HdTemplateRenderDelegate(const HdRenderSettingsMap &settingsMap);
 
     // Destructor
     ~HdTemplateRenderDelegate() override;
@@ -47,45 +48,45 @@ public:
 
     // Implementation of pure virtual function(s) from HdRenderDelegate
     HdRenderPassSharedPtr CreateRenderPass(HdRenderIndex *index,
-                HdRprimCollection const& collection) override;
-    
+                                           HdRprimCollection const &collection) override;
+
     HdInstancer *CreateInstancer(HdSceneDelegate *delegate,
-                                 SdfPath const& id) override;
+                                 SdfPath const &id) override;
 
     void DestroyInstancer(HdInstancer *instancer) override;
 
-    HdRprim *CreateRprim(TfToken const& typeId,
-                         SdfPath const& rprimId) override;
+    HdRprim *CreateRprim(TfToken const &typeId,
+                         SdfPath const &rprimId) override;
 
     void DestroyRprim(HdRprim *rPrim) override;
 
-    HdSprim *CreateSprim(TfToken const& typeId,
-                         SdfPath const& sprimId) override;
+    HdSprim *CreateSprim(TfToken const &typeId,
+                         SdfPath const &sprimId) override;
 
-    HdSprim *CreateFallbackSprim(TfToken const& typeId) override;
+    HdSprim *CreateFallbackSprim(TfToken const &typeId) override;
 
     void DestroySprim(HdSprim *sPrim) override;
 
-    HdBprim *CreateBprim(TfToken const& typeId,
-                         SdfPath const& bprimId) override;
+    HdBprim *CreateBprim(TfToken const &typeId,
+                         SdfPath const &bprimId) override;
 
-    HdBprim *CreateFallbackBprim(TfToken const& typeId) override;
+    HdBprim *CreateFallbackBprim(TfToken const &typeId) override;
 
     void DestroyBprim(HdBprim *bPrim) override;
 
     void CommitResources(HdChangeTracker *tracker) override;
 
-    TfToken GetMaterialBindingPurpose() const override {
+    TfToken GetMaterialBindingPurpose() const override
+    {
         return HdTokens->full;
     }
 
     HdAovDescriptor
-        GetDefaultAovDescriptor(TfToken const& name) const override;
+    GetDefaultAovDescriptor(TfToken const &name) const override;
 
     VtDictionary GetRenderStats() const override;
 
 private:
-
     void _Initialize();
 
     static const TfTokenVector SUPPORTED_RPRIM_TYPES;
@@ -103,13 +104,12 @@ private:
     // Declare _renderThread only once here
     HdRenderThread _renderThread;
 
-    void _RenderCallback() {
+    HdTemplateRenderer _renderer;
 
-    };
 
     // This class does not support copying.
-    HdTemplateRenderDelegate(const HdTemplateRenderDelegate &)             = delete;
-    HdTemplateRenderDelegate &operator =(const HdTemplateRenderDelegate &) = delete;
+    HdTemplateRenderDelegate(const HdTemplateRenderDelegate &) = delete;
+    HdTemplateRenderDelegate &operator=(const HdTemplateRenderDelegate &) = delete;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE
