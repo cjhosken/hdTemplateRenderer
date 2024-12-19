@@ -190,6 +190,12 @@ void HdTemplateRenderer::Render(HdRenderThread *renderThread)
 
             GfVec3f dir = GfVec3f(_inverseViewMatrix.TransformDir(nearPlaneTrace)).GetNormalized();
 
+            GfRay ray(GfVec3d(origin), GfVec3d(dir));
+
+            GfVec4f Cd(0.0f);
+
+            Cd = GfVec3f(dir[0], dir[1], dir[2], 1.0f);
+
             for (size_t i =0; i < _aovBindings.size(); ++i) {
                 HdTemplateRenderBuffer *renderBuffer = static_cast<HdTemplateRenderBuffer*>(_aovBindings[i].renderBuffer);
 
@@ -198,9 +204,7 @@ void HdTemplateRenderer::Render(HdRenderThread *renderThread)
                 }
 
                 if (_aovNames[i].name == HdAovTokens->color) {
-                    GfVec4f sample(dir[0], dir[1], dir[2], 1.0f); 
-
-                    renderBuffer->Write(GfVec3i(x, y, 1), 4, sample.data());
+                    renderBuffer->Write(GfVec3i(x, y, 1), 4, Cd.data());
                 }
             }
 
