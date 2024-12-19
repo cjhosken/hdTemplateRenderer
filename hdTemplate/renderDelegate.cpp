@@ -13,7 +13,7 @@
 
 #include "renderBuffer.h"
 
-#include "pxr/imaging/hd/mesh.h"
+#include "mesh.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -84,7 +84,6 @@ HdTemplateRenderDelegate::~HdTemplateRenderDelegate()
             _resourceRegistry.reset();
         }
     }
-
     _renderThread.StopThread();
     _renderParam.reset();
 }
@@ -194,7 +193,7 @@ HdTemplateRenderDelegate::CreateRprim(TfToken const& typeId,
                                     SdfPath const& rprimId)
 {
     if (typeId == HdPrimTypeTokens->mesh) {
-        //return new HdMesh(rprimId);
+        return new HdTemplateMesh(rprimId);
     } else {
         TF_CODING_ERROR("Unknown Rprim Type %s", typeId.GetText());
     }

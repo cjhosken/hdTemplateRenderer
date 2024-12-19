@@ -181,20 +181,31 @@ void HdTemplateRenderer::Render(HdRenderThread *renderThread)
             GfVec2f jitter(0.0f);
 
             const GfVec3f ndc(
-                2 * ((x + jitter[0] - _dataWindow.GetMinX()) / w) + 1,
-                2 * ((y + jitter[1] - _dataWindow.GetMinY()) / h) + 1,
+                2 * ((x + jitter[0] - _dataWindow.GetMinX()) / w) - 1,
+                2 * ((y + jitter[1] - _dataWindow.GetMinY()) / h) - 1,
                 -1
             );
 
-            const GfVec3f nearPlaneTrace = GfVec3f(_inverseProjMatrix.Transform(ndc));
+            const GfVec3f nearPlaneTrace(_inverseProjMatrix.Transform(ndc));
 
             GfVec3f dir = GfVec3f(_inverseViewMatrix.TransformDir(nearPlaneTrace)).GetNormalized();
 
-            GfRay ray(GfVec3d(origin), GfVec3d(dir));
+            GfRay ray = GfRay(GfVec3d(origin), GfVec3d(dir));
 
             GfVec4f Cd(0.0f);
+            GfVec3f N(0.0f);
+            GfVec3d P(0.0f);
+            float z = 0.0f;
 
-            Cd = GfVec3f(dir[0], dir[1], dir[2], 1.0f);
+            HitData hit = _scene.Intersect(ray);
+            IntersectData it = hit.it;
+
+            if (it.t > 0.0) {
+                z = it.t;
+                P = ray.GetPoint(it.t);
+                N = it.N;
+                Cd = GfVec4f(N[0], N[1], N[2], 1.0f);
+            }
 
             for (size_t i =0; i < _aovBindings.size(); ++i) {
                 HdTemplateRenderBuffer *renderBuffer = static_cast<HdTemplateRenderBuffer*>(_aovBindings[i].renderBuffer);

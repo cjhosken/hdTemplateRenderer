@@ -15,6 +15,7 @@ HdTemplateRenderPass::HdTemplateRenderPass(HdRenderIndex *index, HdRprimCollecti
     , _renderer(renderer)
     , _colorBuffer(SdfPath::EmptyPath())
 {
+    _renderer->SetScene(SceneData(index));
 }
 
 HdTemplateRenderPass::~HdTemplateRenderPass() {
