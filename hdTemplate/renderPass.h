@@ -56,6 +56,7 @@ private:
     HdRenderPassAovBindingVector _aovBindings;
 
     HdTemplateRenderBuffer _colorBuffer;
+    HdTemplateRenderBuffer _depthBuffer;
 
     bool _converged;
 };

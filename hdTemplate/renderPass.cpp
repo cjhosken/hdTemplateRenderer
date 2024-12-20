@@ -14,6 +14,8 @@ HdTemplateRenderPass::HdTemplateRenderPass(HdRenderIndex *index, HdRprimCollecti
     , _renderThread(renderThread)
     , _renderer(renderer)
     , _colorBuffer(SdfPath::EmptyPath())
+    , _depthBuffer(SdfPath::EmptyPath())
+    , _converged(false)
 {
     _renderer->SetScene(SceneData(index));
 }
@@ -84,6 +86,11 @@ void HdTemplateRenderPass::_Execute(HdRenderPassStateSharedPtr const &renderPass
                 HdFormatUNorm8Vec4,
                 false // multisampled
             );
+
+            _depthBuffer.Allocate(
+                dimensions,
+                HdFormatFloat32,
+                /*multiSampled=*/false);
         }
         needStartRender = true;
     }
@@ -100,6 +107,11 @@ void HdTemplateRenderPass::_Execute(HdRenderPassStateSharedPtr const &renderPass
             colorAov.renderBuffer = &_colorBuffer;
             colorAov.clearValue = VtValue(GfVec4d(0,0,0,1));
             aovBindings.push_back(colorAov);
+            HdRenderPassAovBinding depthAov;
+            depthAov.aovName = HdAovTokens->depth;
+            depthAov.renderBuffer = &_depthBuffer;
+            depthAov.clearValue = VtValue(1.0f);
+            aovBindings.push_back(depthAov);
         }
 
         _renderer->SetAovBindings(aovBindings);
@@ -110,6 +122,8 @@ void HdTemplateRenderPass::_Execute(HdRenderPassStateSharedPtr const &renderPass
     TF_VERIFY(!_aovBindings.empty(), "No aov bindings to render into");
 
     if (needStartRender) {
+        _converged = false;
+        _renderer->MarkAovBuffersUnconverged();
         _renderThread->StartRender();
         auto lock = _renderThread->LockFramebuffer();
         // blit pixels from shared to application buffer.

@@ -131,7 +131,17 @@ HdTemplateRenderDelegate::GetDefaultAovDescriptor(TfToken const& name) const
 {
     if (name==HdAovTokens->color) {
         return HdAovDescriptor(HdFormatFloat32Vec4, false, VtValue(GfVec4f(0.0f)));
-    } else {
+    } else if (name==HdAovTokens->normal || name == HdAovTokens->Neye) {
+        return HdAovDescriptor(HdFormatFloat32Vec3, false, VtValue(GfVec3f(0.0f)));
+    } else if (name==HdAovTokens->depth) {
+        return HdAovDescriptor(HdFormatFloat32, false, VtValue(1.0f));
+    } else if (name==HdAovTokens->cameraDepth) {
+        return HdAovDescriptor(HdFormatFloat32, false, VtValue(0.0f));
+    } else if (name==HdAovTokens->Peye) {
+        return HdAovDescriptor(HdFormatFloat32Vec3, false, VtValue(GfVec3f(0.0f)));
+    }
+    
+    else {
         HdParsedAovToken aovId(name);
         if (aovId.isPrimvar) {
             return HdAovDescriptor(HdFormatFloat32Vec3, false, VtValue(GfVec3f(0.0f)));
