@@ -41,8 +41,14 @@ add_library(hdTemplate SHARED
 
 set_property(TARGET hdTemplate PROPERTY CXX_STANDARD 17)
 
-target_include_directories(hdTemplate PUBLIC ${PXR_INCLUDE_DIRS})
-target_link_libraries(hdTemplate PUBLIC ${PXR_LIBRARIES})
+set(PYTHON_ROOT /opt/hfs20.5/python)
+
+set(PXR_INCLUDE_DIRS /opt/hfs20.5/toolkit/include)
+set(PXR_LIBRARIES /opt/hfs20.5/dsolib)
+
+
+target_include_directories(hdTemplate PUBLIC ${PXR_INCLUDE_DIRS} ${PYTHON_ROOT}/include/python3.11)
+target_link_libraries(hdTemplate PUBLIC ${PXR_LIBRARIES} ${PYTHON_ROOT}/lib)
 
 target_compile_definitions(hdTemplate
   PRIVATE
@@ -72,8 +78,8 @@ configure_file(plugInfo.json plugInfo.json @ONLY)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/plugInfo.json" DESTINATION plugin/usd/hdTemplate/resources)
 
 set (HDTEMPLATE_RPATH "$ORIGIN")
-set (HDTEMPLATE_RPATH "${HDBREEZE_RPATH}:/../../lib")
-set (HDTEMPLATE_RPATH "${HDBREEZE_RPATH}:${pxr_DIR}/lib")
+set (HDTEMPLATE_RPATH "${HDTEMPLATE_RPATH}:/../../lib")
+set (HDTEMPLATE_RPATH "${HDTEMPLATE_RPATH}:${PXR_LIBRARIES}/lib")
 
 set_target_properties(hdTemplate PROPERTIES
   PREFIX ""

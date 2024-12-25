@@ -263,7 +263,7 @@ void HdTemplateRenderer::Render(HdRenderThread *renderThread)
 
             GfRay ray = GfRay(GfVec3d(origin), GfVec3d(dir));
 
-            GfVec4f Cd(0.0f);
+            GfVec4f Cd(0.0f, 0.0f, 0.0f, 1.0f);
             GfVec3f N(0.0f);
             GfVec3f P(0.0f);
             float z = 0.0f;

@@ -3,10 +3,6 @@ project(hdTemplatePlugin)
 
 set(CMAKE_CXX_STANDARD 17)
 
-find_package(X11 REQUIRED)
-find_package(pxr CONFIG REQUIRED)
-find_package(OpenGL REQUIRED)
-
 add_subdirectory(hdTemplate)
 
 
