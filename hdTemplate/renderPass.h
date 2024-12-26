@@ -32,7 +32,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 class HdTemplateRenderPass final : public HdRenderPass
 {
 public:
-    HdTemplateRenderPass(HdRenderIndex* index, HdRprimCollection const& collection, HdRenderThread* renderThread, HdTemplateRenderer *renderer);
+    HdTemplateRenderPass(HdRenderIndex* index, HdRprimCollection const& collection, HdRenderThread* renderThread, HdTemplateRenderer *renderer, std::atomic<int> *sceneVersion);
 
     ~HdTemplateRenderPass() override;
 
@@ -47,6 +47,16 @@ protected:
 private:
     HdRenderThread* _renderThread;
     HdTemplateRenderer* _renderer;
+
+
+    // A reference to the global scene version.
+    std::atomic<int> *_sceneVersion;
+
+    // The last scene version we rendered with.
+    int _lastSceneVersion;
+
+    // The last settings version we rendered with.
+    int _lastSettingsVersion;
 
     GfRect2i _dataWindow;
 

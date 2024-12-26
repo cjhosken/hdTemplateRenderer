@@ -37,11 +37,19 @@ public:
 
     void Clear();
 
+    void BuildBVH() {
+        _scene.BuildBVH();
+    }
+
     void MarkAovBuffersUnconverged();
+
+    int GetCompletedSamples() const;
 
 private:
 
     bool _ValidateAovBindings();
+
+    void _RenderTiles(HdRenderThread *renderThread, int sampleNum, size_t tileStart, size_t tileEnd);
 
     static GfVec4f _GetClearColor(VtValue const& clearValue);
 
@@ -58,8 +66,6 @@ private:
     // Are the aov bindings valid?
     bool _aovBindingsValid;
 
-
-
     // The width of the render buffers.
     unsigned int _width;
     // The height of the render buffers.
@@ -73,6 +79,12 @@ private:
     GfMatrix4d _inverseViewMatrix;
     // The inverse projection matrix: NDC space to camera space.
     GfMatrix4d _inverseProjMatrix;
+
+    int _numBounces = 3;
+    int _numSamples = 64;
+    int _tileSize = 32;
+
+    std::atomic<int> _completedSamples;
 
     SceneData _scene;
 

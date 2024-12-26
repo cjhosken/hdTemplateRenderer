@@ -24,19 +24,27 @@ PXR_NAMESPACE_OPEN_SCOPE
 /// 
 class HdTemplateRenderParam : public HdRenderParam {
   public:
-    HdTemplateRenderParam(HdRenderThread* renderThread, SceneData *scene) {
-        _renderThread = renderThread;
-        _scene = scene;
+    HdTemplateRenderParam(HdRenderThread* renderThread, SceneData *scene, std::atomic<int> *sceneVersion) 
+    : _scene(scene), _renderThread(renderThread), _sceneVersion(sceneVersion)
+    {
+
+    }
+
+    void SetScene(SceneData *scene) {
+      _scene = scene;
     }
 
     SceneData* AcquireSceneForEdit() {
       _renderThread->StopRender();
+      (*_sceneVersion)++;
       return _scene;
     }
 
 private:
     HdRenderThread* _renderThread;
     SceneData* _scene;
+
+    std::atomic<int>* _sceneVersion;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

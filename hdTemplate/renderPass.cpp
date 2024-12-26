@@ -6,13 +6,17 @@
 #include "pxr/imaging/hd/renderPassState.h"
 #include "renderDelegate.h"
 
+#include <atomic>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-HdTemplateRenderPass::HdTemplateRenderPass(HdRenderIndex *index, HdRprimCollection const& collection, HdRenderThread *renderThread, HdTemplateRenderer *renderer)
+HdTemplateRenderPass::HdTemplateRenderPass(HdRenderIndex *index, HdRprimCollection const& collection, HdRenderThread *renderThread, HdTemplateRenderer *renderer, std::atomic<int> *sceneVersion)
     : HdRenderPass(index, collection)
     , _renderThread(renderThread)
     , _renderer(renderer)
+    , _sceneVersion(sceneVersion)
+    , _lastSceneVersion(0)
+    , _lastSettingsVersion(0)
     , _colorBuffer(SdfPath::EmptyPath())
     , _depthBuffer(SdfPath::EmptyPath())
     , _converged(false)
@@ -55,6 +59,14 @@ void HdTemplateRenderPass::_Execute(HdRenderPassStateSharedPtr const &renderPass
                                     TfTokenVector const &renderTags)
 {
     bool needStartRender = false;
+
+    int currentSceneVersion = _sceneVersion->load();
+    if (_lastSceneVersion != currentSceneVersion) {
+        needStartRender = true;
+        _renderer->BuildBVH();
+        _lastSceneVersion = currentSceneVersion;
+        
+    }
 
     // Check in the camera has updated
     const GfMatrix4d view = renderPassState->GetWorldToViewMatrix();

@@ -8,6 +8,8 @@
 #include "pxr/imaging/pxOsd/tokens.h"
 #include "pxr/base/gf/matrix4f.h"
 #include "pxr/base/gf/matrix4d.h"
+#include "pxr/base/gf/range3d.h"
+#include <iostream>
 
 #include "sceneData.h"
 
@@ -15,21 +17,25 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-static
-GfVec3f Cross(GfVec3f i, GfVec3f j) {
+static GfVec3f Cross(GfVec3f a, GfVec3f b)
+{
     return GfVec3f(
-        j[1]*j[2] - i[2]*j[1],
-        i[2]*j[0] - i[0]*j[2],
-        i[0]*j[1] - i[1]*j[0]
-    ).GetNormalized();
+               a[1] * b[2] - a[2] * b[1],
+               a[2] * b[0] - a[0] * b[2],
+               a[0] * b[1] - a[1] * b[0])
+        .GetNormalized();
 }
 
-HdTemplateMesh::HdTemplateMesh(SdfPath const &id): HdMesh(id) {}
-
+HdTemplateMesh::HdTemplateMesh(SdfPath const &id) : HdMesh(id) {}
 
 void HdTemplateMesh::Finalize(HdRenderParam *renderParam)
-{}
+{
+}
 
+bool HdTemplateMesh::IntersectBBox(GfRay ray) const
+{
+    return ray.Intersect(_bbox);
+}
 
 IntersectData HdTemplateMesh::Intersect(GfRay ray) const
 {
@@ -43,31 +49,52 @@ IntersectData HdTemplateMesh::Intersect(GfRay ray) const
         GfVec3f p0 = _transform.Transform(_points[_triangulatedIndices[i][0]]);
         GfVec3f p1 = _transform.Transform(_points[_triangulatedIndices[i][1]]);
         GfVec3f p2 = _transform.Transform(_points[_triangulatedIndices[i][2]]);
-        
+
         // Calculate intersection with the triangle using Möller-Trumbore algorithm
-        double t;  // Store intersection distance as a double
+        double t; // Store intersection distance as a double
         GfVec3d barycentricCoords;
         bool frontFacing;
         bool hit = ray.Intersect(p0, p1, p2, &t, &barycentricCoords, &frontFacing);
 
         // If the intersection is closer than the previous one, update closestT
-        if (hit && t < closestT)
+        if (hit && t > 0.0001f && t < closestT)
         {
-            closestT =  t;  // Convert the result back to float
-            normal = Cross(p1-p0, p2-p0);
+            normal = Cross(p2 - p1, p2 - p0);
+            if (frontFacing)
+            {
+                normal *= -1;
+            }
+            closestT = t; // Convert the result back to float
         }
     }
 
-
     // Return the closest intersection t-value (or -1.0 if no intersection)
     closestT = closestT == std::numeric_limits<double>::infinity() ? -1.0 : closestT;
-    return IntersectData{
-        closestT,
-        normal
-    };
+
+    if (closestT < 0)
+    {
+        return IntersectData{
+            -1.0f,
+            GfVec3f(0.0f),
+            GfVec3f(0.0f)
+        };
+    }
+
+    else
+    {
+        GfVec3f Cd(1.0f);
+
+        if (_colors.size() > 0)
+        {
+            Cd = _colors[0];
+        }
+
+        return IntersectData{
+            closestT,
+            normal,
+            Cd};
+    }
 }
-
-
 
 HdDirtyBits
 HdTemplateMesh::GetInitialDirtyBitsMask() const
@@ -75,20 +102,7 @@ HdTemplateMesh::GetInitialDirtyBitsMask() const
     // The initial dirty bits control what data is available on the first
     // run through _PopulateRtMesh(), so it should list every data item
     // that _PopulateRtMesh requests.
-    int mask = HdChangeTracker::Clean
-        | HdChangeTracker::InitRepr
-        | HdChangeTracker::DirtyPoints
-        | HdChangeTracker::DirtyTopology
-        | HdChangeTracker::DirtyTransform
-        | HdChangeTracker::DirtyVisibility
-        | HdChangeTracker::DirtyCullStyle
-        | HdChangeTracker::DirtyDoubleSided
-        | HdChangeTracker::DirtyDisplayStyle
-        | HdChangeTracker::DirtySubdivTags
-        | HdChangeTracker::DirtyPrimvar
-        | HdChangeTracker::DirtyNormals
-        | HdChangeTracker::DirtyInstancer
-        ;
+    int mask = HdChangeTracker::Clean | HdChangeTracker::InitRepr | HdChangeTracker::DirtyPoints | HdChangeTracker::DirtyTopology | HdChangeTracker::DirtyTransform | HdChangeTracker::DirtyVisibility | HdChangeTracker::DirtyCullStyle | HdChangeTracker::DirtyDoubleSided | HdChangeTracker::DirtyDisplayStyle | HdChangeTracker::DirtySubdivTags | HdChangeTracker::DirtyPrimvar | HdChangeTracker::DirtyNormals | HdChangeTracker::DirtyInstancer;
 
     return (HdDirtyBits)mask;
 }
@@ -99,25 +113,24 @@ HdTemplateMesh::_PropagateDirtyBits(HdDirtyBits bits) const
     return bits;
 }
 
-void
-HdTemplateMesh::_InitRepr(TfToken const &reprToken,
-                        HdDirtyBits *dirtyBits)
+void HdTemplateMesh::_InitRepr(TfToken const &reprToken,
+                               HdDirtyBits *dirtyBits)
 {
     TF_UNUSED(dirtyBits);
 
     // Create an empty repr.
     _ReprVector::iterator it = std::find_if(_reprs.begin(), _reprs.end(),
                                             _ReprComparator(reprToken));
-    if (it == _reprs.end()) {
+    if (it == _reprs.end())
+    {
         _reprs.emplace_back(reprToken, HdReprSharedPtr());
     }
 }
 
-void
-HdTemplateMesh::Sync(HdSceneDelegate *sceneDelegate,
-                   HdRenderParam   *renderParam,
-                   HdDirtyBits     *dirtyBits,
-                   TfToken const   &reprToken)
+void HdTemplateMesh::Sync(HdSceneDelegate *sceneDelegate,
+                          HdRenderParam *renderParam,
+                          HdDirtyBits *dirtyBits,
+                          TfToken const &reprToken)
 {
     HD_TRACE_FUNCTION();
     HF_MALLOC_TAG_FUNCTION();
@@ -125,7 +138,7 @@ HdTemplateMesh::Sync(HdSceneDelegate *sceneDelegate,
     _MeshReprConfig::DescArray descs = _GetReprDesc(reprToken);
     const HdMeshReprDesc &desc = descs[0];
 
-    SdfPath const& id = GetId();
+    SdfPath const &id = GetId();
 
     TfTokenVector computedPrimvars = _UpdateComputedPrimvarSources(sceneDelegate, *dirtyBits);
 
@@ -134,12 +147,14 @@ HdTemplateMesh::Sync(HdSceneDelegate *sceneDelegate,
                   HdTokens->points) != computedPrimvars.end();
 
     if (!pointsIsComputed &&
-        HdChangeTracker::IsPrimvarDirty(*dirtyBits, id, HdTokens->points)) {
+        HdChangeTracker::IsPrimvarDirty(*dirtyBits, id, HdTokens->points))
+    {
         VtValue value = sceneDelegate->Get(id, HdTokens->points);
         _points = value.Get<VtVec3fArray>();
     }
 
-    if (HdChangeTracker::IsTopologyDirty(*dirtyBits, id)) {
+    if (HdChangeTracker::IsTopologyDirty(*dirtyBits, id))
+    {
         // When pulling a new topology, we don't want to overwrite the
         // refine level or subdiv tags, which are provided separately by the
         // scene delegate, so we save and restore them.
@@ -149,32 +164,60 @@ HdTemplateMesh::Sync(HdSceneDelegate *sceneDelegate,
         _topology.SetSubdivTags(subdivTags);
     }
     if (HdChangeTracker::IsSubdivTagsDirty(*dirtyBits, id) &&
-        _topology.GetRefineLevel() > 0) {
+        _topology.GetRefineLevel() > 0)
+    {
         _topology.SetSubdivTags(sceneDelegate->GetSubdivTags(id));
     }
 
-    if (HdChangeTracker::IsTransformDirty(*dirtyBits, id)) {
+    if (HdChangeTracker::IsTransformDirty(*dirtyBits, id))
+    {
         _transform = GfMatrix4f(sceneDelegate->GetTransform(id));
     }
 
-    if (HdChangeTracker::IsVisibilityDirty(*dirtyBits, id)) {
+    if (HdChangeTracker::IsVisibilityDirty(*dirtyBits, id))
+    {
         _UpdateVisibility(sceneDelegate, dirtyBits);
     }
 
     HdMeshUtil meshUtil(&_topology, GetId());
     meshUtil.ComputeTriangleIndices(&_triangulatedIndices,
-        &_trianglePrimitiveParams);
+                                    &_trianglePrimitiveParams);
 
     // Assuming you have a sceneDelegate and an id for the object you're querying
+
     VtValue value = sceneDelegate->Get(id, HdTokens->bbox);
+    if (value.IsHolding<GfBBox3d>())
+    {
+        _bbox = value.Get<GfBBox3d>();
+    }
+    else
+    {
+        _bbox = GfBBox3d();
+
+        if (!_points.empty())
+        {
+            GfRange3d range;
+
+            for (const GfVec3f &point : _points)
+            {
+                range.UnionWith(_transform.Transform(GfVec3d(point)));
+            }
+
+            _bbox.SetRange(range);
+        }
+    }
+
+    VtValue Cd = sceneDelegate->Get(id, HdTokens->displayColor);
+    if (Cd.IsHolding<VtVec3fArray>()) {
+        _colors = Cd.Get<VtVec3fArray>();
+    }
 }
 
-void
-HdTemplateMesh::_UpdatePrimvarSources(HdSceneDelegate* sceneDelegate,
-                                    HdDirtyBits dirtyBits)
+void HdTemplateMesh::_UpdatePrimvarSources(HdSceneDelegate *sceneDelegate,
+                                           HdDirtyBits dirtyBits)
 {
     HD_TRACE_FUNCTION();
-    SdfPath const& id = GetId();
+    SdfPath const &id = GetId();
 
     // Update _primvarSourceMap, our local cache of raw primvar data.
     // This function pulls data from the scene delegate, but defers processing.
@@ -187,66 +230,75 @@ HdTemplateMesh::_UpdatePrimvarSources(HdSceneDelegate* sceneDelegate,
     // the set of primvars, so we only ever add and update to the primvar set.
 
     HdPrimvarDescriptorVector primvars;
-    for (size_t i=0; i < HdInterpolationCount; ++i) {
+    for (size_t i = 0; i < HdInterpolationCount; ++i)
+    {
         HdInterpolation interp = static_cast<HdInterpolation>(i);
         primvars = GetPrimvarDescriptors(sceneDelegate, interp);
-        for (HdPrimvarDescriptor const& pv: primvars) {
+        for (HdPrimvarDescriptor const &pv : primvars)
+        {
             if (HdChangeTracker::IsPrimvarDirty(dirtyBits, id, pv.name) &&
-                pv.name != HdTokens->points) {
+                pv.name != HdTokens->points)
+            {
                 _primvarSourceMap[pv.name] = {
                     GetPrimvar(sceneDelegate, pv.name),
-                    interp
-                };
+                    interp};
             }
         }
     }
 }
 
 TfTokenVector
-HdTemplateMesh::_UpdateComputedPrimvarSources(HdSceneDelegate* sceneDelegate,
-                                            HdDirtyBits dirtyBits)
+HdTemplateMesh::_UpdateComputedPrimvarSources(HdSceneDelegate *sceneDelegate,
+                                              HdDirtyBits dirtyBits)
 {
     HD_TRACE_FUNCTION();
-    
-    SdfPath const& id = GetId();
+
+    SdfPath const &id = GetId();
 
     // Get all the dirty computed primvars
     HdExtComputationPrimvarDescriptorVector dirtyCompPrimvars;
-    for (size_t i=0; i < HdInterpolationCount; ++i) {
+    for (size_t i = 0; i < HdInterpolationCount; ++i)
+    {
         HdExtComputationPrimvarDescriptorVector compPrimvars;
         HdInterpolation interp = static_cast<HdInterpolation>(i);
-        compPrimvars = sceneDelegate->GetExtComputationPrimvarDescriptors
-                                    (GetId(),interp);
+        compPrimvars = sceneDelegate->GetExtComputationPrimvarDescriptors(GetId(), interp);
 
-        for (auto const& pv: compPrimvars) {
-            if (HdChangeTracker::IsPrimvarDirty(dirtyBits, id, pv.name)) {
+        for (auto const &pv : compPrimvars)
+        {
+            if (HdChangeTracker::IsPrimvarDirty(dirtyBits, id, pv.name))
+            {
                 dirtyCompPrimvars.emplace_back(pv);
             }
         }
     }
 
-    if (dirtyCompPrimvars.empty()) {
+    if (dirtyCompPrimvars.empty())
+    {
         return TfTokenVector();
     }
-    
-    HdExtComputationUtils::ValueStore valueStore
-        = HdExtComputationUtils::GetComputedPrimvarValues(
-            dirtyCompPrimvars, sceneDelegate);
+
+    HdExtComputationUtils::ValueStore valueStore = HdExtComputationUtils::GetComputedPrimvarValues(
+        dirtyCompPrimvars, sceneDelegate);
 
     TfTokenVector compPrimvarNames;
     // Update local primvar map and track the ones that were computed
-    for (auto const& compPrimvar : dirtyCompPrimvars) {
+    for (auto const &compPrimvar : dirtyCompPrimvars)
+    {
         auto const it = valueStore.find(compPrimvar.name);
-        if (!TF_VERIFY(it != valueStore.end())) {
+        if (!TF_VERIFY(it != valueStore.end()))
+        {
             continue;
         }
-        
+
         compPrimvarNames.emplace_back(compPrimvar.name);
-        if (compPrimvar.name == HdTokens->points) {
+        if (compPrimvar.name == HdTokens->points)
+        {
             _points = it->second.Get<VtVec3fArray>();
-        } else {
+        }
+        else
+        {
             _primvarSourceMap[compPrimvar.name] = {it->second,
-                                                compPrimvar.interpolation};
+                                                   compPrimvar.interpolation};
         }
     }
 

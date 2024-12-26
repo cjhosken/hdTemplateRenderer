@@ -278,6 +278,7 @@ void HdTemplateRenderBuffer::Clear(size_t numComponents, int const *value)
     }
 }
 
+
 /*virtual*/
 void HdTemplateRenderBuffer::Resolve()
 {

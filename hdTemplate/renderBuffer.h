@@ -110,6 +110,8 @@ public:
     ///   \param value         An int-valued vector to write.
     void Clear(size_t numComponents, int const *value);
 
+    
+
 private:
     // Calculate the needed buffer size, given the allocation parameters    // Calculate the needed buffer size, given the allocation parameters.
     static size_t _GetBufferSize(GfVec2i const &dims, HdFormat format);

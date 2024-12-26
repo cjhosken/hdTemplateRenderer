@@ -13,9 +13,11 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-struct IntersectData {
+struct IntersectData
+{
     double t;
     GfVec3f N;
+    GfVec3f Cd;
 };
 
 class HdTemplateMesh final : public HdMesh
@@ -38,13 +40,22 @@ public:
 
     IntersectData Intersect(GfRay ray) const;
 
+    bool IntersectBBox(GfRay ray) const;
+
+    GfMatrix4f GetTransform() const {
+        return _transform;
+    }
+
+    GfBBox3d GetBBox() const {
+        return _bbox;
+    }
+
 protected:
     virtual void _InitRepr(TfToken const &reprToken, HdDirtyBits *dirtyBits) override;
 
     virtual HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
 
 private:
-
     void _UpdatePrimvarSources(HdSceneDelegate *sceneDelegate,
                                HdDirtyBits dirtyBits);
 
@@ -56,6 +67,8 @@ private:
     HdMeshTopology _topology;
     GfMatrix4f _transform;
     VtVec3fArray _points;
+    VtVec3fArray _colors;
+    GfBBox3d _bbox;
 
     VtVec3iArray _triangulatedIndices;
     VtIntArray _trianglePrimitiveParams;

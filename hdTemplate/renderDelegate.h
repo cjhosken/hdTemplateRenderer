@@ -104,7 +104,9 @@ private:
     // Declare _renderThread only once here
     HdRenderThread _renderThread;
 
-    HdTemplateRenderer _renderer;
+    HdTemplateRenderer* _renderer;
+
+    std::atomic<int> _sceneVersion;
 
 
     // This class does not support copying.

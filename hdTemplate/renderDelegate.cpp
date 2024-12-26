@@ -58,14 +58,14 @@ HdTemplateRenderDelegate::HdTemplateRenderDelegate(const HdRenderSettingsMap &se
 void HdTemplateRenderDelegate::_Initialize()
 {
     _renderParam = std::make_shared<HdTemplateRenderParam>(
-        &_renderThread, nullptr
+        &_renderThread, nullptr, &_sceneVersion
     );
 
-    _renderer = HdTemplateRenderer();
+    _renderer = new HdTemplateRenderer();
 
     // Initialize settingsMap if necessary
     _renderThread.SetRenderCallback(
-        std::bind(_RenderCallback, &_renderer, &_renderThread));
+        std::bind(_RenderCallback, _renderer, &_renderThread));
     _renderThread.StartThread();
 
     std::lock_guard<std::mutex> guard(_mutexResourceRegistry);
@@ -130,7 +130,7 @@ HdAovDescriptor
 HdTemplateRenderDelegate::GetDefaultAovDescriptor(TfToken const& name) const
 {
     if (name==HdAovTokens->color) {
-        return HdAovDescriptor(HdFormatFloat32Vec4, false, VtValue(GfVec4f(0.0f)));
+        return HdAovDescriptor(HdFormatFloat32Vec4, true, VtValue(GfVec4f(0.0f, 0.0f, 0.0f, 1.0f)));
     } else if (name==HdAovTokens->normal || name == HdAovTokens->Neye) {
         return HdAovDescriptor(HdFormatFloat32Vec3, false, VtValue(GfVec3f(0.0f)));
     } else if (name==HdAovTokens->depth) {
@@ -179,7 +179,7 @@ HdRenderPassSharedPtr HdTemplateRenderDelegate::CreateRenderPass(HdRenderIndex *
                 HdRprimCollection const& collection)
 {
     // Implement the required functionality
-    return HdRenderPassSharedPtr(new HdTemplateRenderPass(index, collection, &_renderThread, &_renderer)); // Example, create and return a render pass
+    return HdRenderPassSharedPtr(new HdTemplateRenderPass(index, collection, &_renderThread, _renderer, &_sceneVersion)); // Example, create and return a render pass
 }
 
 HdInstancer *
