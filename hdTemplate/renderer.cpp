@@ -1,59 +1,55 @@
 #include "renderer.h"
+#include "sceneData.h"
+#include "renderBuffer.h"
+#include "renderDelegate.h"
+
 #include "pxr/imaging/hd/perfLog.h"
 
 #include "pxr/base/gf/matrix3f.h"
-#include "pxr/base/gf/ray.h"
+#include "pxr/base/gf/vec2f.h"
+#include "pxr/base/work/loops.h"
+#include "pxr/base/tf/hash.h"
+#include "pxr/base/tf/staticTokens.h"
+
+#include "pxr/base/gf/matrix3f.h"
 #include "pxr/base/gf/vec2f.h"
 #include "pxr/base/work/loops.h"
 
 #include "pxr/base/tf/hash.h"
 
-#include "renderBuffer.h"
-#include "config.h"
-#include "mesh.h"
-#include "pxr/usd/usd/prim.h"
+#include <chrono>
+#include <thread>
 
-#include "pxr/base/tf/debug.h"
-
-#include <iostream>
-
-PXR_NAMESPACE_USING_DIRECTIVE
+PXR_NAMESPACE_OPEN_SCOPE
 
 HdTemplateRenderer::HdTemplateRenderer()
-    : _aovBindings(), _aovNames(), _aovBindingsNeedValidation(false), _aovBindingsValid(false), _width(0), _height(0), _viewMatrix(1.0f) // == identity
-      ,
-      _projMatrix(1.0f) // == identity
-      ,
-      _inverseViewMatrix(1.0f) // == identity
-      ,
-      _inverseProjMatrix(1.0f) // == identity
+    : _width(0), _height(0), _viewMatrix(1.0f), _projMatrix(1.0f), _inverseViewMatrix(1.0f), _inverseProjMatrix(1.0f), _completedSamples(0)
 {
 }
 
-HdTemplateRenderer::~HdTemplateRenderer() {
-    delete &_scene;
+static GfVec3f toVec3f(GfVec3d v)
+{
+    return GfVec3f(
+        static_cast<float>(v[0]),
+        static_cast<float>(v[1]),
+        static_cast<float>(v[2]));
 };
 
-void HdTemplateRenderer::SetScene(TemplateScene scene)
+HdTemplateRenderer::~HdTemplateRenderer() = default;
+
+void HdTemplateRenderer::SetScene(SceneData scene)
 {
     _scene = scene;
 }
 
-
 void HdTemplateRenderer::SetDataWindow(const GfRect2i &dataWindow)
 {
     _dataWindow = dataWindow;
-
-    // Here for clients that do not use camera framing but the
-    // viewport.
-    //
-    // Re-validate the attachments, since attachment viewport and
-    // render viewport need to match.
-    _aovBindingsNeedValidation = true;
 }
 
-void HdTemplateRenderer::SetCamera(const GfMatrix4d &viewMatrix,
-                                   const GfMatrix4d &projMatrix)
+void HdTemplateRenderer::SetCamera(
+    const GfMatrix4d &viewMatrix,
+    const GfMatrix4d &projMatrix)
 {
     _viewMatrix = viewMatrix;
     _projMatrix = projMatrix;
@@ -61,8 +57,7 @@ void HdTemplateRenderer::SetCamera(const GfMatrix4d &viewMatrix,
     _inverseProjMatrix = projMatrix.GetInverse();
 }
 
-void HdTemplateRenderer::SetAovBindings(
-    HdRenderPassAovBindingVector const &aovBindings)
+void HdTemplateRenderer::SetAovBindings(HdRenderPassAovBindingVector const &aovBindings)
 {
     _aovBindings = aovBindings;
     _aovNames.resize(_aovBindings.size());
@@ -71,8 +66,17 @@ void HdTemplateRenderer::SetAovBindings(
         _aovNames[i] = HdParsedAovToken(_aovBindings[i].aovName);
     }
 
-    // Re-validate the attachments.
     _aovBindingsNeedValidation = true;
+}
+
+void HdTemplateRenderer::MarkAovBuffersUnconverged()
+{
+    for (size_t i = 0; i < _aovBindings.size(); ++i)
+    {
+        HdTemplateRenderBuffer *rb =
+            static_cast<HdTemplateRenderBuffer *>(_aovBindings[i].renderBuffer);
+        rb->SetConverged(false);
+    }
 }
 
 bool HdTemplateRenderer::_ValidateAovBindings()
@@ -87,28 +91,64 @@ bool HdTemplateRenderer::_ValidateAovBindings()
 
     for (size_t i = 0; i < _aovBindings.size(); ++i)
     {
-
-        // By the time the attachment gets here, there should be a bound
-        // output buffer.
         if (_aovBindings[i].renderBuffer == nullptr)
         {
-            TF_WARN("Aov '%s' doesn't have any renderbuffer bound",
-                    _aovNames[i].name.GetText());
+            TF_WARN("Aov '%s' doesn't have any renderbuffer bound", _aovNames[i].name.GetText());
             _aovBindingsValid = false;
             continue;
         }
 
         if (_aovNames[i].name != HdAovTokens->color &&
+            _aovNames[i].name != HdAovTokens->cameraDepth &&
+            _aovNames[i].name != HdAovTokens->depth &&
+            _aovNames[i].name != HdAovTokens->Neye &&
+            _aovNames[i].name != HdAovTokens->normal &&
+
             !_aovNames[i].isPrimvar)
         {
-            TF_WARN("Unsupported attachment with Aov '%s' won't be rendered to",
-                    _aovNames[i].name.GetText());
+            TF_WARN("Unsupported attachment with Aov '%s' won't be rendered to", _aovNames[i].name.GetText());
         }
 
         HdFormat format = _aovBindings[i].renderBuffer->GetFormat();
 
-        // color is only supported for vec3/vec4 attachments of float,
-        // unorm, or snorm.
+        // depth is only supported for float32 attachments
+        if ((_aovNames[i].name == HdAovTokens->cameraDepth ||
+             _aovNames[i].name == HdAovTokens->depth) &&
+            format != HdFormatFloat32)
+        {
+            TF_WARN("Aov '%s' has unsupported format '%s'",
+                    _aovNames[i].name.GetText(),
+                    TfEnum::GetName(format).c_str());
+            _aovBindingsValid = false;
+        }
+
+        if ((_aovNames[i].name == HdAovTokens->Neye ||
+             _aovNames[i].name == HdAovTokens->normal) &&
+            format != HdFormatFloat32Vec3)
+        {
+            TF_WARN("Aov '%s' has unsupported format '%s'",
+                    _aovNames[i].name.GetText(),
+                    TfEnum::GetName(format).c_str());
+            _aovBindingsValid = false;
+        }
+
+        if (_aovNames[i].name == HdAovTokens->Peye &&
+            format != HdFormatFloat32Vec3)
+        {
+            TF_WARN("Aov '%s' has unsupported format '%s'",
+                    _aovNames[i].name.GetText(),
+                    TfEnum::GetName(format).c_str());
+            _aovBindingsValid = false;
+        }
+
+        if (_aovNames[i].isPrimvar && format != HdFormatFloat32Vec3)
+        {
+            TF_WARN("Aov 'primvars:%s' has unsupported format '%s'",
+                    _aovNames[i].name.GetText(),
+                    TfEnum::GetName(format).c_str());
+            _aovBindingsValid = false;
+        }
+
         if (_aovNames[i].name == HdAovTokens->color)
         {
             switch (format)
@@ -145,6 +185,30 @@ bool HdTemplateRenderer::_ValidateAovBindings()
                 _aovBindingsValid = false;
             }
 
+            if ((_aovNames[i].name == HdAovTokens->cameraDepth || _aovNames[i].name == HdAovTokens->depth) && format != HdFormatFloat32)
+            {
+                TF_WARN("Aov '%s' has unsupported format '%s'", _aovNames[i].name.GetText(), TfEnum::GetName(format).c_str());
+                _aovBindingsValid = false;
+            }
+
+            if ((_aovNames[i].name == HdAovTokens->Neye ||
+                 _aovNames[i].name == HdAovTokens->normal) &&
+                format != HdFormatFloat32Vec3)
+            {
+                TF_WARN("Aov '%s' has unsupported format '%s'",
+                        _aovNames[i].name.GetText(),
+                        TfEnum::GetName(format).c_str());
+                _aovBindingsValid = false;
+            }
+
+            if (_aovNames[i].name == HdAovTokens->Peye && format != HdFormatFloat32Vec3)
+            {
+                TF_WARN("Aov '%s' has unsupported format '%s'",
+                        _aovNames[i].name.GetText(),
+                        TfEnum::GetName(format).c_str());
+                _aovBindingsValid = false;
+            }
+
             // color only supports float/double vec3/4
             if (_aovNames[i].name == HdAovTokens->color &&
                 clearType.type != HdTypeFloatVec3 &&
@@ -176,6 +240,244 @@ bool HdTemplateRenderer::_ValidateAovBindings()
     }
 
     return _aovBindingsValid;
+}
+
+int
+HdTemplateRenderer::GetCompletedSamples() const
+{
+    return _completedSamples.load();
+}
+
+static
+bool
+_IsContained(const GfRect2i &rect, int width, int height)
+{
+    return
+        rect.GetMinX() >= 0 && rect.GetMaxX() < width &&
+        rect.GetMinY() >= 0 && rect.GetMaxY() < height;
+}
+
+
+void HdTemplateRenderer::Render(HdRenderThread *renderThread)
+{
+    _completedSamples.store(0);
+
+    if (!_ValidateAovBindings()) {
+        // We aren't going to render anything. Just mark all AOVs as converged
+        // so that we will stop rendering.
+        for (size_t i = 0; i < _aovBindings.size(); ++i) {
+            HdTemplateRenderBuffer *rb = static_cast<HdTemplateRenderBuffer*>(
+                _aovBindings[i].renderBuffer);
+            rb->SetConverged(true);
+        }
+        // XXX:validation
+        TF_WARN("Could not validate Aovs. Render will not complete");
+        return;
+    }
+
+    _width  = 0;
+    _height = 0;
+
+    // Map all of the attachments.
+    for (size_t i = 0; i < _aovBindings.size(); ++i) {
+        //
+        // XXX
+        //
+        // A scene delegate might specify the path to a
+        // render buffer instead of a pointer to the
+        // render buffer.
+        //
+        static_cast<HdTemplateRenderBuffer*>(
+            _aovBindings[i].renderBuffer)->Map();
+
+        if (i == 0) {
+            _width  = _aovBindings[i].renderBuffer->GetWidth();
+            _height = _aovBindings[i].renderBuffer->GetHeight();
+        } else {
+            if ( _width  != _aovBindings[i].renderBuffer->GetWidth() ||
+                 _height != _aovBindings[i].renderBuffer->GetHeight()) {
+                TF_CODING_ERROR(
+                    "Render buffers have inconsistent sizes");
+            }
+        }
+    }
+
+    if (_width > 0 || _height > 0) {
+        if (!_IsContained(_dataWindow, _width, _height)) {
+            TF_CODING_ERROR(
+                "dataWindow is larger than render buffer");
+        
+        }
+    }
+
+    for (int i = 0; i < _numSamples; ++i)
+    {
+        while (renderThread->IsPauseRequested())
+        {
+            if (renderThread->IsStopRequested())
+            {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        // Cancellation point.
+        if (renderThread->IsStopRequested())
+        {
+            break;
+        }
+
+        const unsigned int numTilesX = (_dataWindow.GetWidth() + _tileSize - 1) / _tileSize;
+        const unsigned int numTilesY = (_dataWindow.GetHeight() + _tileSize - 1) / _tileSize;
+
+        WorkParallelForN(numTilesX * numTilesY, std::bind(&HdTemplateRenderer::_RenderTiles, this, renderThread, i, std::placeholders::_1, std::placeholders::_2));
+
+        if (i == 0)
+        {
+            bool moreWork = false;
+            for (size_t i = 0; i < _aovBindings.size(); ++i)
+            {
+                HdTemplateRenderBuffer *rb = static_cast<HdTemplateRenderBuffer *>(
+                    _aovBindings[i].renderBuffer);
+                if (rb->IsMultiSampled())
+                {
+                    moreWork = true;
+                }
+            }
+            if (!moreWork)
+            {
+                _completedSamples.store(i + 1);
+                break;
+            }
+        }
+
+        // Track the number of completed samples for external consumption.
+        _completedSamples.store(i + 1);
+
+        // Cancellation point.
+        if (renderThread->IsStopRequested())
+        {
+            break;
+        }
+    }
+
+    // Mark the multisampled attachments as converged and unmap all buffers.
+    for (size_t i = 0; i < _aovBindings.size(); ++i)
+    {
+        HdTemplateRenderBuffer *rb = static_cast<HdTemplateRenderBuffer *>(
+            _aovBindings[i].renderBuffer);
+        rb->Unmap();
+        rb->SetConverged(true);
+    }
+}
+
+void HdTemplateRenderer::_RenderTiles(HdRenderThread *renderThread, int sampleNum, size_t tileStart, size_t tileEnd)
+{
+    const unsigned int minX = _dataWindow.GetMinX();
+    unsigned int minY = _dataWindow.GetMinY();
+    const unsigned int maxX = _dataWindow.GetMaxX() + 1;
+    unsigned int maxY = _dataWindow.GetMaxY() + 1;
+
+    const unsigned int numTilesX = (_dataWindow.GetWidth() + _tileSize - 1) / _tileSize;
+
+    GfVec3f origin = GfVec3f(_inverseViewMatrix.Transform(GfVec3f(0.0f)));
+
+
+    std::default_random_engine random(0);
+
+    // Create a uniform distribution for jitter calculations.
+    std::uniform_real_distribution<float> uniform_dist(0.0f, 1.0f);
+    auto uniform_float = [&random, &uniform_dist]()
+    { return uniform_dist(random); };
+
+    for (unsigned int tile = tileStart; tile < tileEnd; ++tile)
+    {
+        if (renderThread && renderThread->IsStopRequested())
+        {
+            break;
+        }
+
+        const unsigned int tileY = tile / numTilesX;
+        const unsigned int tileX = tile - tileY * numTilesX;
+
+        const unsigned int x0 = tileX * _tileSize + minX;
+        const unsigned int y0 = tileY * _tileSize + minY;
+
+        const unsigned int x1 = std::min(x0 + _tileSize, maxX);
+        const unsigned int y1 = std::min(y0 + _tileSize, maxY);
+
+        const float w(_dataWindow.GetWidth());
+        const float h(_dataWindow.GetHeight());
+
+        for (unsigned int y = y0; y < y1; ++y)
+        {
+            for (unsigned int x = x0; x < x1; ++x)
+            {
+                if (renderThread && renderThread->IsStopRequested()) {
+                    return; // Exit the function early if the render thread is stopped
+                }
+
+                GfVec4f Cd(0.0f, 0.0f, 0.0f, 1.0f);
+                GfVec3f N(0.0f);
+                GfVec3f P(0.0f);
+                float z = 0;
+
+                GfVec2f jitter(uniform_float(), uniform_float());
+                // GfVec2f jitter(0.0f);
+
+                const GfVec3f ndc(
+                    2 * ((x + jitter[0] - _dataWindow.GetMinX()) / w) - 1,
+                    2 * ((y + jitter[1] - _dataWindow.GetMinY()) / h) - 1,
+                    -1);
+
+                const GfVec3f nearPlaneTrace(_inverseProjMatrix.Transform(ndc));
+
+                GfVec3f dir = GfVec3f(_inverseViewMatrix.TransformDir(nearPlaneTrace)).GetNormalized();
+
+                GfRay ray = GfRay(GfVec3d(origin), GfVec3d(dir));
+
+                HitData hit = _scene.Intersect(ray, _numBounces);
+
+                Cd += hit.Cd;
+                N += hit.N;
+                P += hit.P;
+                z += hit.t;
+
+                for (size_t i = 0; i < _aovBindings.size(); ++i)
+                {
+                    HdTemplateRenderBuffer *renderBuffer = static_cast<HdTemplateRenderBuffer *>(_aovBindings[i].renderBuffer);
+
+                    if (renderBuffer->IsConverged())
+                    {
+                        continue;
+                    }
+                    if (_aovNames[i].name == HdAovTokens->color)
+                    {
+                        renderBuffer->Write(GfVec3i(x, y, 1), 4, Cd.data());
+                    }
+                    else if ((_aovNames[i].name == HdAovTokens->cameraDepth || _aovNames[i].name == HdAovTokens->depth) && renderBuffer->GetFormat() == HdFormatFloat32)
+                    {
+                        renderBuffer->Write(GfVec3i(x, y, 1), 1, &z);
+                    }
+                    else if (_aovNames[i].name == HdAovTokens->Peye && renderBuffer->GetFormat() == HdFormatFloat32Vec3)
+                    {
+                        renderBuffer->Write(GfVec3i(x, y, 1), 3, P.data());
+                    }
+                    else if ((_aovNames[i].name == HdAovTokens->Neye ||
+                              _aovNames[i].name == HdAovTokens->normal) &&
+                             renderBuffer->GetFormat() == HdFormatFloat32Vec3)
+                    {
+                        renderBuffer->Write(GfVec3i(x, y, 1), 3, N.data());
+                    }
+                    else if (_aovNames[i].isPrimvar &&
+                             renderBuffer->GetFormat() == HdFormatFloat32Vec3)
+                    {
+                        GfVec3f value;
+                        renderBuffer->Write(GfVec3i(x, y, 1), 3, value.data());
+                    }
+                }
+            }
+        }
+    }
 }
 
 /* static */
@@ -221,11 +523,6 @@ HdTemplateRenderer::_GetClearColor(VtValue const &clearValue)
 
 void HdTemplateRenderer::Clear()
 {
-    if (!_ValidateAovBindings())
-    {
-        return;
-    }
-
     for (size_t i = 0; i < _aovBindings.size(); ++i)
     {
         if (_aovBindings[i].clearValue.IsEmpty())
@@ -233,8 +530,7 @@ void HdTemplateRenderer::Clear()
             continue;
         }
 
-        HdTemplateRenderBuffer *rb =
-            static_cast<HdTemplateRenderBuffer *>(_aovBindings[i].renderBuffer);
+        HdTemplateRenderBuffer *rb = static_cast<HdTemplateRenderBuffer *>(_aovBindings[i].renderBuffer);
 
         rb->Map();
         if (_aovNames[i].name == HdAovTokens->color)
@@ -256,181 +552,11 @@ void HdTemplateRenderer::Clear()
         {
             GfVec3f clearValue = _aovBindings[i].clearValue.Get<GfVec3f>();
             rb->Clear(3, clearValue.data());
-        }
+        } // else, _ValidateAovBindings would have already warned.
 
         rb->Unmap();
         rb->SetConverged(false);
     }
 }
 
-static bool
-_IsContained(const GfRect2i &rect, int width, int height)
-{
-    return rect.GetMinX() >= 0 && rect.GetMaxX() < width &&
-           rect.GetMinY() >= 0 && rect.GetMaxY() < height;
-}
-
-void HdTemplateRenderer::MarkAovBuffersUnconverged()
-{
-    for (size_t i = 0; i < _aovBindings.size(); ++i)
-    {
-        HdTemplateRenderBuffer *rb =
-            static_cast<HdTemplateRenderBuffer *>(_aovBindings[i].renderBuffer);
-        rb->SetConverged(false);
-    }
-}
-
-void HdTemplateRenderer::Render(HdRenderThread *renderThread)
-{
-    if (!_ValidateAovBindings())
-    {
-        // We aren't going to render anything. Just mark all AOVs as converged
-        // so that we will stop rendering.
-        for (size_t i = 0; i < _aovBindings.size(); ++i)
-        {
-            HdTemplateRenderBuffer *rb = static_cast<HdTemplateRenderBuffer *>(
-                _aovBindings[i].renderBuffer);
-            rb->SetConverged(true);
-        }
-        // XXX:validation
-        TF_WARN("Could not validate Aovs. Render will not complete");
-        return;
-    }
-
-    // Map all of the attachments.
-    for (size_t i = 0; i < _aovBindings.size(); ++i)
-    {
-        //
-        // XXX
-        //
-        // A scene delegate might specify the path to a
-        // render buffer instead of a pointer to the
-        // render buffer.
-        //
-        static_cast<HdTemplateRenderBuffer *>(
-            _aovBindings[i].renderBuffer)
-            ->Map();
-
-        if (i == 0)
-        {
-            _width = _aovBindings[i].renderBuffer->GetWidth();
-            _height = _aovBindings[i].renderBuffer->GetHeight();
-        }
-        else
-        {
-            if (_width != _aovBindings[i].renderBuffer->GetWidth() ||
-                _height != _aovBindings[i].renderBuffer->GetHeight())
-            {
-                TF_CODING_ERROR(
-                    "Template render buffers have inconsistent sizes");
-            }
-        }
-    }
-
-    if (_width > 0 || _height > 0)
-    {
-        if (!_IsContained(_dataWindow, _width, _height))
-        {
-            TF_CODING_ERROR(
-                "dataWindow is larger than render buffer");
-        }
-    }
-
-    _width = 0;
-    _height = 0;
-
-    std::default_random_engine random(1);
-
-    // Create a uniform distribution for jitter calculations.
-    std::uniform_real_distribution<float> uniform_dist(0.0f, 1.0f);
-    auto uniform_float = [&random, &uniform_dist]() { return uniform_dist(random); };
-
-    for (int i = 0; i < 1; ++i)
-    {
-        // Pause point.
-        while (renderThread->IsPauseRequested())
-        {
-            if (renderThread->IsStopRequested())
-            {
-                break;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-        // Cancellation point.
-        if (renderThread->IsStopRequested())
-        {
-            break;
-        }
-
-        GfVec3f origin = GfVec3f(_inverseViewMatrix.Transform(GfVec3f(0,0,0)));
-
-        //_scene->SortByDepth(origin);
-
-        for (unsigned int y = _dataWindow.GetHeight() - 1; y >= 0; --y)
-        {
-            if (renderThread->IsStopRequested())
-            {
-                break;
-            }
-            
-            for (unsigned int x = 0; x < _dataWindow.GetWidth(); ++x)
-            {
-
-                if (renderThread->IsStopRequested())
-                {
-                    break;
-                }
-                
-                GfVec4f Cd(0.0f, 0.0f, 0.0f, 1.0f);
-
-                GfVec2f jitter = GfVec2f(uniform_float(), uniform_float());
-                jitter = GfVec2f(0.0f, 0.0f);
-
-                const float w(_dataWindow.GetWidth());
-                const float h(_dataWindow.GetHeight());
-
-                const GfVec3f ndc(
-                    2 * ((x + jitter[0] - _dataWindow.GetMinX()) / w) - 1,
-                    2 * ((y + jitter[1] - _dataWindow.GetMinY()) / h) - 1,
-                    -1);
-                
-                const GfVec3f nearPlaneTrace(_inverseProjMatrix.Transform(ndc));
-
-                GfVec3f dir = GfVec3f(_inverseViewMatrix.TransformDir(nearPlaneTrace)).GetNormalized();
-
-                GfRay ray(origin, dir);
-
-                Cd = _scene.Render(ray);
-
-                // Set pixels for each AOV
-                for (size_t i = 0; i < _aovBindings.size(); ++i)
-                {
-                    HdTemplateRenderBuffer *renderBuffer =
-                        static_cast<HdTemplateRenderBuffer *>(_aovBindings[i].renderBuffer);
-
-                    if (_aovNames[i].name == HdAovTokens->color)
-                    {
-                        GfVec4f clearColor = _GetClearColor(_aovBindings[i].clearValue);
-
-                        renderBuffer->Write(GfVec3i(x, y, 1), 4, Cd.data());
-                    }
-                }
-            }
-        }
-
-        // Cancellation point.
-        if (renderThread->IsStopRequested())
-        {
-            break;
-        }
-    }
-
-    // Mark the multisampled attachments as converged and unmap all buffers.
-    for (size_t i = 0; i < _aovBindings.size(); ++i)
-    {
-        HdTemplateRenderBuffer *rb = static_cast<HdTemplateRenderBuffer *>(
-            _aovBindings[i].renderBuffer);
-        rb->Unmap();
-        rb->SetConverged(true);
-    }
-}
+PXR_NAMESPACE_CLOSE_SCOPE

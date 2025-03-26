@@ -1,11 +1,7 @@
-cmake_minimum_required(VERSION 3.31)
+cmake_minimum_required(VERSION 3.26)
 project(hdTemplatePlugin)
 
 set(CMAKE_CXX_STANDARD 17)
-
-find_package(X11 REQUIRED)
-find_package(pxr CONFIG REQUIRED)
-find_package(OpenGL REQUIRED)
 
 add_subdirectory(hdTemplate)
 

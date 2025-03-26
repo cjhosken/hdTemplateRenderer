@@ -10,9 +10,8 @@
 #include "pxr/pxr.h"
 #include "pxr/imaging/hd/renderDelegate.h"
 #include "pxr/imaging/hd/renderThread.h"
-#include "pxr/usd/usd/prim.h"
+#include "sceneData.h"
 
-#include "templateScene.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -23,23 +22,29 @@ PXR_NAMESPACE_OPEN_SCOPE
 /// to each prim during Sync(). HdTemplate uses this class to pass top-level
 /// embree state around.
 /// 
-class HdTemplateRenderParam final : public HdRenderParam
-{
-public:
-    HdTemplateRenderParam(HdRenderThread *renderThread, std::atomic<int> *sceneVersion) 
-    : _renderThread(renderThread), _sceneVersion(sceneVersion)
-    {}
+class HdTemplateRenderParam : public HdRenderParam {
+  public:
+    HdTemplateRenderParam(HdRenderThread* renderThread, SceneData *scene, std::atomic<int> *sceneVersion) 
+    : _scene(scene), _renderThread(renderThread), _sceneVersion(sceneVersion)
+    {
 
-    /// Accessor for the top-level scene.
-    void Edit() {
-        _renderThread->StopRender();
-        (*_sceneVersion)++;
+    }
+
+    void SetScene(SceneData *scene) {
+      _scene = scene;
+    }
+
+    SceneData* AcquireSceneForEdit() {
+      _renderThread->StopRender();
+      (*_sceneVersion)++;
+      return _scene;
     }
 
 private:
+    HdRenderThread* _renderThread;
+    SceneData* _scene;
 
-    HdRenderThread *_renderThread;
-    std::atomic<int> *_sceneVersion;
+    std::atomic<int>* _sceneVersion;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

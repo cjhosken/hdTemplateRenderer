@@ -1,64 +1,47 @@
-//
-// Copyright 2016 Pixar
-//
-// Licensed under the terms set forth in the LICENSE.txt file available at
-// https://openusd.org/license.
-//
+#include "renderPass.h"
+#include "pxr/imaging/hd/renderThread.h"
+#include "pxr/imaging/hd/extComputation.h"
+#include "pxr/imaging/hd/resourceRegistry.h"
+#include "pxr/imaging/hd/tokens.h"
 #include "pxr/imaging/hd/renderPassState.h"
 #include "renderDelegate.h"
-#include "renderPass.h"
-#include <iostream>
-#include "templateScene.h"
+
+#include <atomic>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-HdTemplateRenderPass::HdTemplateRenderPass(HdRenderIndex *index,
-                                       HdRprimCollection const &collection,
-                                       HdRenderThread* renderThread,
-                                       HdTemplateRenderer *renderer,
-                                       std::atomic<int> *sceneVersion)
+HdTemplateRenderPass::HdTemplateRenderPass(HdRenderIndex *index, HdRprimCollection const& collection, HdRenderThread *renderThread, HdTemplateRenderer *renderer, std::atomic<int> *sceneVersion)
     : HdRenderPass(index, collection)
     , _renderThread(renderThread)
     , _renderer(renderer)
     , _sceneVersion(sceneVersion)
     , _lastSceneVersion(0)
     , _lastSettingsVersion(0)
-    , _viewMatrix(1.0f) // == identity
-    , _projMatrix(1.0f) // == identity
-    , _aovBindings()
     , _colorBuffer(SdfPath::EmptyPath())
-    ,_converged(false)
+    , _depthBuffer(SdfPath::EmptyPath())
+    , _converged(false)
 {
-    _renderer->SetScene(TemplateScene(index));
+    _renderer->SetScene(SceneData(index));
 }
 
-HdTemplateRenderPass::~HdTemplateRenderPass()
-{
-    // Make sure the render thread's not running, in case it's writing
-    // to _colorBuffer/_depthBuffer.
+HdTemplateRenderPass::~HdTemplateRenderPass() {
     _renderThread->StopRender();
 }
 
-bool
-HdTemplateRenderPass::IsConverged() const {
-    // If the aov binding array is empty, the render thread is rendering into
-    // _colorBuffer and _depthBuffer.  _converged is set to their convergence
-    // state just before blit, so use that as our answer.
+bool HdTemplateRenderPass::IsConverged() const {
     if (_aovBindings.size() == 0) {
         return _converged;
     }
-
-    // Otherwise, check the convergence of all attachments.
-    for (size_t i = 0; i < _aovBindings.size(); ++i) {
-        if (_aovBindings[i].renderBuffer &&
-            !_aovBindings[i].renderBuffer->IsConverged()) {
+    for (size_t i = 0; i < _aovBindings.size(); ++i)
+    {
+        if (_aovBindings[i].renderBuffer && !_aovBindings[i].renderBuffer->IsConverged()) {
             return false;
         }
     }
     return true;
 }
 
-static
+static 
 GfRect2i
 _GetDataWindow(HdRenderPassStateSharedPtr const& renderPassState)
 {
@@ -66,40 +49,26 @@ _GetDataWindow(HdRenderPassStateSharedPtr const& renderPassState)
     if (framing.IsValid()) {
         return framing.dataWindow;
     } else {
-        // For applications that use the old viewport API instead of
-        // the new camera framing API.
         const GfVec4f vp = renderPassState->GetViewport();
-        return GfRect2i(GfVec2i(0), int(vp[2]), int(vp[3]));        
+        return GfRect2i(GfVec2i(0), int(vp[2]), int(vp[3]));
     }
 }
 
-void
-HdTemplateRenderPass::_Execute(HdRenderPassStateSharedPtr const& renderPassState,
-                             TfTokenVector const &renderTags)
+
+void HdTemplateRenderPass::_Execute(HdRenderPassStateSharedPtr const &renderPassState,
+                                    TfTokenVector const &renderTags)
 {
-    // Determine whether the scene has changed since the last time we rendered.
     bool needStartRender = false;
+
     int currentSceneVersion = _sceneVersion->load();
     if (_lastSceneVersion != currentSceneVersion) {
         needStartRender = true;
+        _renderer->BuildBVH();
         _lastSceneVersion = currentSceneVersion;
+        
     }
 
-    // Likewise the render settings.
-    HdRenderDelegate *renderDelegate = GetRenderIndex()->GetRenderDelegate();
-    int currentSettingsVersion = renderDelegate->GetRenderSettingsVersion();
-    if (_lastSettingsVersion != currentSettingsVersion) {
-        _renderThread->StopRender();
-        _lastSettingsVersion = currentSettingsVersion;
-
-        //_renderer->SetRandomNumberSeed(
-        //    renderDelegate->GetRenderSetting<unsigned int>(
-        //        HdEmbreeRenderSettingsTokens->randomNumberSeed, (unsigned int)-1));
-
-        needStartRender = true;
-    }
-
-    // Determine whether we need to update the renderer camera.
+    // Check in the camera has updated
     const GfMatrix4d view = renderPassState->GetWorldToViewMatrix();
     const GfMatrix4d proj = renderPassState->GetProjectionMatrix();
     if (_viewMatrix != view || _projMatrix != proj) {
@@ -111,7 +80,7 @@ HdTemplateRenderPass::_Execute(HdRenderPassStateSharedPtr const& renderPassState
         needStartRender = true;
     }
 
-    // Check if the window has been resized
+    // check if the data window has changed
 
     const GfRect2i dataWindow = _GetDataWindow(renderPassState);
 
@@ -122,52 +91,57 @@ HdTemplateRenderPass::_Execute(HdRenderPassStateSharedPtr const& renderPassState
         _renderer->SetDataWindow(dataWindow);
 
         if (!renderPassState->GetFraming().IsValid()) {
-            // Support clients that do not use the new framing API
-            // and do not use AOVs.
-            //
-            // Note that we do not support the case of using the
-            // new camera framing API without using AOVs.
-            //
-            const GfVec3i dimensions(_dataWindow.GetWidth(),
-                                     _dataWindow.GetHeight(),
-                                     1);
+            const GfVec3i dimensions(_dataWindow.GetWidth(), _dataWindow.GetHeight(), 1);
 
             _colorBuffer.Allocate(
                 dimensions,
                 HdFormatUNorm8Vec4,
-                /*multiSampled=*/true);
-        }
+                false // multisampled
+            );
 
+            _depthBuffer.Allocate(
+                dimensions,
+                HdFormatFloat32,
+                /*multiSampled=*/false);
+        }
         needStartRender = true;
     }
 
-    HdRenderPassAovBindingVector aovBindings =
-        renderPassState->GetAovBindings();
+    HdRenderPassAovBindingVector aovBindings = renderPassState->GetAovBindings();
     if (_aovBindings != aovBindings || _renderer->GetAovBindings().empty()) {
         _aovBindings = aovBindings;
 
         _renderThread->StopRender();
+
         if (aovBindings.empty()) {
             HdRenderPassAovBinding colorAov;
             colorAov.aovName = HdAovTokens->color;
             colorAov.renderBuffer = &_colorBuffer;
-            colorAov.clearValue =
-                VtValue(GfVec4f(0.0f, 0.0f, 0.0f, 1.0f));
+            colorAov.clearValue = VtValue(GfVec4d(0,0,0,1));
             aovBindings.push_back(colorAov);
+            HdRenderPassAovBinding depthAov;
+            depthAov.aovName = HdAovTokens->depth;
+            depthAov.renderBuffer = &_depthBuffer;
+            depthAov.clearValue = VtValue(1.0f);
+            aovBindings.push_back(depthAov);
         }
+
         _renderer->SetAovBindings(aovBindings);
-        // In general, the render thread clears aov bindings, but make sure
-        // they are cleared initially on this thread.
         _renderer->Clear();
         needStartRender = true;
     }
 
-    // Only start a new render if something in the scene has changed.
+    TF_VERIFY(!_aovBindings.empty(), "No aov bindings to render into");
+
     if (needStartRender) {
         _converged = false;
         _renderer->MarkAovBuffersUnconverged();
         _renderThread->StartRender();
+        auto lock = _renderThread->LockFramebuffer();
+        // blit pixels from shared to application buffer.
     }
 }
+
+
 
 PXR_NAMESPACE_CLOSE_SCOPE

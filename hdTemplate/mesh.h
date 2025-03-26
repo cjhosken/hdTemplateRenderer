@@ -1,72 +1,89 @@
-// Copyright 2019 Intel Corporation
-// SPDX-License-Identifier: Apache-2.0
+#ifndef HD_TEMPLATE_MESH_H
+#define HD_TEMPLATE_MESH_H
 
-#pragma once
-
-#include <pxr/imaging/hd/mesh.h>
-#include <pxr/pxr.h>
+#include "pxr/pxr.h"
+#include "pxr/imaging/hd/mesh.h"
+#include "pxr/imaging/hd/enums.h"
+#include "pxr/imaging/hd/vertexAdjacency.h"
 #include "pxr/base/gf/matrix4f.h"
+#include "pxr/base/gf/matrix3f.h"
+#include "pxr/base/gf/vec2f.h"
+#include "pxr/base/work/loops.h"
 #include "pxr/base/gf/ray.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
+PXR_NAMESPACE_OPEN_SCOPE
 
-class HdStDrawItem;
+struct IntersectData
+{
+    double t;
+    GfVec3f N;
+    GfVec3f Cd;
+};
 
-/// \class HdTemplateMesh
-///
-/// hdTemplate RPrim object
-/// - supports tri and quad meshes, as well as subd and curves.
-///
-class HdTemplateMesh final : public HdMesh {
+class HdTemplateMesh final : public HdMesh
+{
 public:
     HF_MALLOC_TAG_NEW("new HdTemplateMesh");
 
-    ///   \param id scenegraph path
-    ///
-    HdTemplateMesh(SdfPath const& id);
+    HdTemplateMesh(SdfPath const &id);
+
+    virtual ~HdTemplateMesh() {};
 
     virtual HdDirtyBits GetInitialDirtyBitsMask() const override;
 
-    virtual void Sync(
-        pxr::HdSceneDelegate* sceneDelegate,
-        pxr::HdRenderParam* renderParam,
-        pxr::HdDirtyBits* dirtBits,
-        const pxr::TfToken& reprToken
-    ) override;
+    virtual void Sync(HdSceneDelegate *sceneDelegate,
+                      HdRenderParam *renderParam,
+                      HdDirtyBits *dirtBIts,
+                      TfToken const &reprToken) override;
 
-    virtual void Finalize(HdRenderParam* renderParam) override;
+    virtual void Finalize(HdRenderParam *renderParam) override;
 
-    double Intersect(GfRay ray) const;
+    IntersectData Intersect(GfRay ray) const;
 
-    GfVec3d GetPosition() const {return _position;}
+    bool IntersectBBox(GfRay ray) const;
+
+    GfMatrix4f GetTransform() const {
+        return _transform;
+    }
+
+    GfBBox3d GetBBox() const {
+        return _bbox;
+    }
 
 protected:
-
-    virtual void _InitRepr(TfToken const &reprToken,
-            HdDirtyBits *dirtBits
-        ) override;
+    virtual void _InitRepr(TfToken const &reprToken, HdDirtyBits *dirtyBits) override;
 
     virtual HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
 
 private:
-    GfVec3d _position;
-    VtVec3fArray _points;
-    HdMeshTopology _topology;
+    void _UpdatePrimvarSources(HdSceneDelegate *sceneDelegate,
+                               HdDirtyBits dirtyBits);
 
-    struct PrimvarSource {
+    // Populate _primvarSourceMap with primvars that are computed.
+    // Return the names of the primvars that were successfully updated.
+    TfTokenVector _UpdateComputedPrimvarSources(HdSceneDelegate *sceneDelegate,
+                                                HdDirtyBits dirtyBits);
+
+    HdMeshTopology _topology;
+    GfMatrix4f _transform;
+    VtVec3fArray _points;
+    VtVec3fArray _colors;
+    GfBBox3d _bbox;
+
+    VtVec3iArray _triangulatedIndices;
+    VtIntArray _trianglePrimitiveParams;
+
+    struct PrimvarSource
+    {
         VtValue data;
         HdInterpolation interpolation;
     };
     TfHashMap<TfToken, PrimvarSource, TfToken::HashFunctor> _primvarSourceMap;
 
-    // Populate _primvarSourceMap with primvars that are computed.
-    // Return the names of the primvars that were successfully updated.
-    TfTokenVector _UpdateComputedPrimvarSources(HdSceneDelegate* sceneDelegate,
-                                                HdDirtyBits dirtyBits);
-
-
-
-    // This class does not support copying.
-    HdTemplateMesh(const HdTemplateMesh& other) = delete;
-    HdTemplateMesh& operator=(const HdTemplateMesh&) = delete;
+    HdTemplateMesh(const HdTemplateMesh &) = delete;
+    HdTemplateMesh &operator=(const HdTemplateMesh &) = delete;
 };
+
+PXR_NAMESPACE_CLOSE_SCOPE
+
+#endif
